@@ -186,6 +186,184 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 QDialog {{
     background: {BG_PAGE};
 }}
+
+/* ---- тулбар: акцентная кнопка "Новый заказ" (раздел v1.5 header_filters) ---- */
+QToolBar QToolButton#primaryToolButton {{
+    background: {ACCENT};
+    color: #ffffff;
+    border: 1px solid {ACCENT};
+    font-weight: 600;
+}}
+QToolBar QToolButton#primaryToolButton:hover {{
+    background: #4338ca;
+    border-color: #4338ca;
+    color: #ffffff;
+}}
+
+/* ---- вкладки: индикатор активной вкладки снизу ---- */
+QTabBar::tab:selected {{
+    border-bottom: 3px solid {ACCENT};
+}}
+
+/* ---- подвал со счётчиком тестов ---- */
+QWidget#footerBar {{
+    background: {SURFACE};
+    border-top: 1px solid {BORDER};
+}}
+QWidget#footerBar QLabel {{
+    color: {TEXT_MUTED};
+    font-size: 11.5px;
+}}
+QLabel#footerPill {{
+    background: {SURFACE_SOFT};
+    border: 1px solid {BORDER};
+    border-radius: 5px;
+    padding: 4px 8px;
+}}
+
+/* ---- карточка: подложки-боксы (дедлайн/клиент/заказ/связанные тесты) ---- */
+QFrame#infoBox {{
+    background: {SURFACE_SOFT};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+QFrame#infoBox QLabel#sectionTitle {{
+    color: #8b94a5;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    background: transparent;
+    border: none;
+}}
+QLabel#cardTitle {{
+    font-size: 19px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+}}
+QLabel#cardSub {{
+    color: {TEXT_MUTED};
+    background: transparent;
+    border: none;
+}}
+QLabel#cardStatusPill {{
+    background: {ACCENT_SOFT};
+    color: {ACCENT};
+    border-radius: 9px;
+    padding: 6px 10px;
+    font-weight: 600;
+}}
+
+/* ---- поля заказа "Заказ · управление" (только для чтения, раздел v1.5) ---- */
+QFrame#fieldBox {{
+    background: #ffffff;
+    border: 1px solid {BORDER};
+    border-radius: 7px;
+}}
+QFrame#fieldBox QLabel#fieldLabel {{
+    color: #929bad;
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    background: transparent;
+    border: none;
+}}
+QFrame#fieldBox QLabel#fieldValue {{
+    color: {TEXT_PRIMARY};
+    background: transparent;
+    border: none;
+}}
+
+/* ---- быстрые действия / кнопки заказа ---- */
+QPushButton#actionPrimary {{
+    background: {ACCENT};
+    color: #ffffff;
+    border: 1px solid {ACCENT};
+    font-weight: 600;
+}}
+QPushButton#actionPrimary:hover:enabled {{
+    background: #4338ca;
+}}
+QPushButton#actionDone {{
+    background: #ecfdf3;
+    color: #15803d;
+    border: 1px solid #b9ebcb;
+}}
+
+/* ---- таймлайн маршрута теста ---- */
+QLabel#timelineStepTitle {{
+    font-weight: 600;
+    background: transparent;
+    border: none;
+}}
+QLabel#timelineStepTime {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    background: transparent;
+    border: none;
+}}
+QLabel#timelineStepNote {{
+    color: #606a7a;
+    font-size: 11px;
+    background: transparent;
+    border: none;
+}}
+
+/* ---- попап фильтра колонки шапки таблицы (раздел v1.5 header_filters) ---- */
+QFrame#headerFilterMenu {{
+    background: #ffffff;
+    border: 1px solid {BORDER};
+    border-radius: 9px;
+}}
+QFrame#headerFilterMenu QLabel#filterMenuTitle {{
+    color: #929bad;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 2px 4px 4px;
+    background: transparent;
+    border: none;
+}}
+QFrame#headerFilterMenu QPushButton#filterOption {{
+    background: #ffffff;
+    color: {TEXT_PRIMARY};
+    border: none;
+    border-radius: 6px;
+    padding: 8px 9px;
+    text-align: left;
+    font-weight: 400;
+}}
+QFrame#headerFilterMenu QPushButton#filterOption:hover {{
+    background: #f7f8fb;
+}}
+QFrame#headerFilterMenu QPushButton#filterOption[selected="true"] {{
+    background: {ACCENT_SOFT};
+    color: {ACCENT};
+    font-weight: 600;
+}}
+QFrame#headerFilterMenu QFrame#filterClearDivider {{
+    background: {BORDER};
+    max-height: 1px;
+    margin: 4px 0;
+}}
+QFrame#headerFilterMenu QLineEdit#filterSearch {{
+    background: #ffffff;
+    border: 1px solid {BORDER};
+    border-radius: 7px;
+    padding: 7px 9px;
+}}
+QFrame#headerFilterMenu QLineEdit#filterSearch:focus {{
+    border-color: #b8bbff;
+}}
+
+/* ---- заголовок таблицы: колонка с активным фильтром выделяется акцентом ---- */
+QHeaderView::section:hover {{
+    background: #f1f3f8;
+    color: {TEXT_PRIMARY};
+}}
 """
 
 

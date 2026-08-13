@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GENOPOISK CRM — UX prototype</title>
+<style>
+:root{
+  --bg:#f5f7fb;
+  --panel:#ffffff;
+  --line:#e4e8f0;
+  --text:#1d2433;
+  --muted:#7a8498;
+  --primary:#4f46e5;
+  --primary-soft:#eef0ff;
+  --success:#16a34a;
+  --warning:#f59e0b;
+  --danger:#dc2626;
+  --purple:#9333ea;
+  --shadow:0 6px 20px rgba(31,41,55,.06);
+  --radius:12px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Inter,Segoe UI,Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:14px;
+}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.app{min-height:100vh;display:flex;flex-direction:column}
+.topbar{
+  height:58px;background:var(--panel);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;padding:0 18px;gap:8px;flex-shrink:0;
+}
+.brand{font-weight:600;font-size:18px;margin-right:18px;letter-spacing:-.02em}
+.topbtn{
+  border:0;background:transparent;padding:10px 12px;border-radius:8px;color:#4b5563;
+}
+.topbtn:hover{background:#f1f3f8;color:var(--text)}
+.topbtn.primary{background:var(--primary);color:#fff;font-weight:500}
+.topbtn.primary:hover{background:#4338ca}
+.tabs{
+  height:50px;display:flex;align-items:end;padding:0 18px;background:var(--bg);
+  gap:6px;border-bottom:1px solid var(--line)
+}
+.tab{
+  border:0;background:transparent;padding:14px 16px 12px;border-radius:10px 10px 0 0;
+  color:var(--muted);font-weight:500;position:relative
+}
+.tab.active{background:var(--panel);color:var(--text);box-shadow:0 -1px 0 var(--line),1px 0 0 var(--line),-1px 0 0 var(--line)}
+.tab.active:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px;background:var(--primary);border-radius:3px 3px 0 0}
+.toolbar{padding:10px 18px;display:flex;gap:10px;align-items:center}
+.search{
+  flex:1;max-width:740px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:10px 14px;outline:none
+}
+.search:focus{border-color:#c7c9ff;box-shadow:0 0 0 3px var(--primary-soft)}
+.select{
+  min-width:170px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px
+}
+.layout{display:grid;grid-template-columns:minmax(0,7fr) minmax(330px,3fr);gap:12px;padding:0 18px 14px;flex:1;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
+.table-wrap{overflow:auto;max-height:calc(100vh - 154px)}
+table{width:100%;border-collapse:separate;border-spacing:0;min-width:920px}
+
+.filter-head{padding:0 !important}
+.filter-btn{
+  width:100%;height:38px;border:0;background:transparent;color:#7b8494;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:0 10px;font-size:12px;font-weight:400;text-transform:uppercase;
+  letter-spacing:.02em;text-align:left
+}
+.filter-btn:hover{background:#f1f3f8;color:var(--text)}
+.filter-btn.active{color:var(--primary);background:var(--primary-soft)}
+.filter-btn.compact{justify-content:center}
+.filter-menu{
+  position:fixed;z-index:50;min-width:210px;max-width:280px;background:#fff;
+  border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 32px rgba(25,35,55,.14);
+  padding:8px
+}
+.filter-menu-title{font-size:11px;text-transform:uppercase;color:#929bad;letter-spacing:.06em;padding:7px 8px 5px}
+.filter-option{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:0;background:#fff;border-radius:6px;padding:8px 9px;text-align:left;color:var(--text)
+}
+.filter-option:hover{background:#f7f8fb}
+.filter-option.selected{background:var(--primary-soft);color:var(--primary)}
+.filter-clear{border-top:1px solid var(--line);margin-top:6px;padding-top:6px}
+.filter-search{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px 9px;outline:none}
+.filter-search:focus{border-color:#b8bbff;box-shadow:0 0 0 2px var(--primary-soft)}
+
+thead th{
+  position:sticky;top:0;background:#fbfcfe;color:#7b8494;font-size:12px;text-transform:uppercase;
+  letter-spacing:.02em;text-align:left;font-weight:400;padding:11px 12px;border-bottom:1px solid var(--line);z-index:2
+}
+tbody td{padding:10px 12px;border-bottom:1px solid #edf0f5;vertical-align:middle;white-space:nowrap}
+tbody tr:hover{background:#fafbfe}
+tbody tr.selected{background:var(--primary-soft)}
+.rank{width:36px;color:#9aa3b2;text-align:center}
+.gns{font-weight:600}
+.person{font-weight:500}
+.badge{
+  display:inline-flex;align-items:center;justify-content:center;border-radius:5px;
+  padding:5px 9px;font-weight:500;font-size:12px;line-height:1;
+  border:1px solid rgba(80,90,110,.18);box-shadow:none
+}
+.b-ybasic{background:#cbd8ff}.b-y37{background:#dec3ff}.b-mt{background:#67e0d4}
+.b-mitogenome{background:#a7e9c9}.b-strelka{background:#ffd09f}
+.b-wgs15{background:#9de0b2}.b-wgs30{background:#54ce7c}
+.b-report{background:#e5e7eb}
+
+.status-chip.done{background:#e9f8ef;border-color:#b7e3c7;color:#16803d}
+.status-chip.work{background:#fff6df;border-color:#f1d89a;color:#9a6700}
+.status-chip.profile{background:#eef0ff;border-color:#cfd2ff;color:#4f46e5}
+.status-chip.lab{background:#f5eaff;border-color:#ddc1ff;color:#7e22ce}
+.status-chip.received{background:#e8fbf8;border-color:#b8ebe5;color:#0f766e}
+.status-chip.waiting{background:#eef5ff;border-color:#cbdcff;color:#315eb8}
+.status-chip.neutral{background:#f5f6f8;border-color:#dfe3ea;color:#596273}
+
+.status-chip{
+  display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:5px;
+  background:#f7f8fb;border:1px solid var(--line);font-weight:500;color:#4b5563
+}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.red{background:#dc2626}.dot.purple{background:#9333ea}.dot.yellow{background:#f59e0b}
+.dot.green{background:#16a34a}.dot.gray{background:#a8b0bd}.dot.blue{background:#4f46e5}
+.deadline{font-variant-numeric:tabular-nums;font-weight:500}
+.deadline.soon{color:var(--purple)} .deadline.late{color:var(--danger)} .deadline.done{color:var(--success)}
+.empty{height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.card{padding:16px;display:flex;flex-direction:column;min-height:0}
+.card-scroll{overflow:auto;min-height:0}
+.card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.head-left{min-width:0}
+.card-title{font-size:20px;font-weight:600;letter-spacing:-.02em;margin:0}
+.card-sub{margin-top:6px;color:var(--muted);font-size:13px}
+.card-status{margin-top:10px;display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;font-weight:500;background:var(--primary-soft);color:var(--primary)}
+.section{margin-top:15px}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8b94a5;font-weight:400;margin-bottom:8px}
+.orderbox,.deadlinebox,.clientbox{
+  border:1px solid var(--line);border-radius:10px;padding:12px;background:#fbfcfe
+}
+.orderbox strong{font-size:15px}
+.order-item{margin-top:8px;display:flex;gap:8px;align-items:center}
+.type-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.two-col{display:grid;grid-template-columns:1.3fr .9fr;gap:10px}
+.deadline-big{font-size:20px;font-weight:500;margin-top:3px}
+.deadline-note{margin-top:4px;color:var(--muted);font-size:12px}
+.clientbox div{margin:5px 0}
+.timeline{position:relative;padding-left:22px}
+.timeline:before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:#dfe4ec}
+.step{position:relative;padding:0 0 16px 10px}
+.step:last-child{padding-bottom:0}
+.step-dot{position:absolute;left:-20px;top:2px;width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px #cfd5df;background:#cfd5df;z-index:1}
+.step.done .step-dot{background:var(--success);box-shadow:0 0 0 1px #a7dbb7}
+.step.current .step-dot{background:var(--primary);box-shadow:0 0 0 1px #b8bbff}
+.step.wait .step-dot{background:#cfd5df}
+.step.warn .step-dot{background:var(--warning);box-shadow:0 0 0 1px #f3d79e}
+.step-title{font-weight:500}
+.step-time{color:var(--muted);font-size:12px;margin-top:3px}
+.step-note{font-size:12px;color:#606a7a;margin-top:4px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.action{
+  border:1px solid var(--line);background:#fff;border-radius:6px;padding:10px 9px;font-weight:400;
+  color:#4b5563;transition:.15s ease
+}
+.action:hover{border-color:#b8bbff;background:#fafaff}
+.action:active{transform:translateY(1px)}
+.action.primary{background:var(--primary);border-color:var(--primary);color:white}
+.action.success{background:#ecfdf3;border-color:#b9ebcb;color:#15803d}
+.action.disabled{background:#f4f5f7;color:#9aa3b2;cursor:default}
+.action.saving{background:#eef0ff;color:var(--primary);cursor:wait}
+
+.order-status-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-box{border:1px solid var(--line);border-radius:7px;padding:9px 10px;background:#fff}
+.field-box .field-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#929bad;margin-bottom:4px}
+.field-box .field-value{font-size:13px;color:var(--text)}
+.field-box select,.field-box input,.field-box textarea{
+  width:100%;border:0;outline:0;background:transparent;padding:0;color:var(--text);font-size:13px
+}
+.order-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.order-action{border:1px solid var(--line);background:#fff;border-radius:6px;padding:9px 10px;color:#4b5563;font-weight:400}
+.order-action:hover{border-color:#b8bbff;background:#fafaff}
+.order-action.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.order-note{font-size:11px;color:var(--muted);margin-top:6px}
+
+.footer{
+  height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;
+  color:#8b94a5;font-size:12px
+}
+.smallpill{padding:5px 8px;border-radius:5px;background:#f7f8fb;border:1px solid var(--line);font-weight:400}
+@media(max-width:1000px){.layout{grid-template-columns:1fr}.card{min-height:520px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">GENOPOISK CRM</div>
+    <button class="topbtn primary" onclick="newOrder()">Новый заказ</button>
+    <button class="topbtn" onclick="alert('Импорт Excel — демо кнопка')">Импорт Excel</button>
+    <button class="topbtn" onclick="alert('Экспорт Excel — демо кнопка')">Экспорт в Excel</button>
+    <button class="topbtn" onclick="alert('Товары Telegram — демо кнопка')">Товары (Telegram)</button>
+    <button class="topbtn" onclick="alert('Резервные копии — демо кнопка')">Резервные копии</button>
+    <button class="topbtn" onclick="alert('Настройки — демо кнопка')">Настройки</button>
+  </div>
+
+  <div class="tabs">
+    <button id="tab-client" class="tab active" onclick="switchTab('client')">Клиентская</button>
+    <button id="tab-internal" class="tab" onclick="switchTab('internal')">Внутренняя работа</button>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" class="search" placeholder="Поиск по GNS, № заказа, ФИО, телефону/email, типу теста..." oninput="render()">
+    <select id="filter" class="select" onchange="render()">
+      <option value="all">Все</option>
+      <option value="urgent">Требуют внимания</option>
+      <option value="waiting">Ожидаем получение</option>
+      <option value="work">В работе</option>
+      <option value="done">Выдано клиенту</option>
+    </select>
+  </div>
+
+  <div class="layout">
+    <section class="panel table-wrap">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </section>
+
+    <aside class="panel card">
+      <div id="card"></div>
+    </aside>
+  </div>
+
+  <div class="footer">
+    <div id="count">Тестов в списке: 0</div>
+    <div><span class="smallpill">Демо · данные тестовые</span></div>
+  </div>
+</div>
+
+<script>
+const types = {
+  ybasic:{name:'Y Базовый', cls:'b-ybasic', dot:'#8aa4ff'},
+  y37:{name:'Y37', cls:'b-y37', dot:'#a565f0'},
+  mt:{name:'МитоДНК Базовый', cls:'b-mt', dot:'#1fc6b8'},
+  mito:{name:'Полный митогеном', cls:'b-mitogenome', dot:'#39c47a'},
+  strelka:{name:'Strelka', cls:'b-strelka', dot:'#f39a2c'},
+  wgs15:{name:'Происхождение', cls:'b-wgs15', dot:'#21b65e'},
+  wgs30:{name:'Эксперт', cls:'b-wgs30', dot:'#159447'}
+};
+
+const tests = Array.from({length:17},(_,i)=>({
+  id:i+1,
+  gns:'GNPSK'+String(i+1).padStart(6,'0'),
+  order:i<2?'123456':'OZ-'+String(400+i-2).padStart(3,'0'),
+  person:i<2?'Тестовый Клиент':(['Хмелева Т.','Бушмакина К.','Находкин В.','Студеникин А.','Волков Е.','Орлова М.','Ларькин А.','Соколова А.','Панин П.','Реброва Р.','Носов Н.','Титов Т.','Юдин Ю.','Реутов П.','Дараган Д.'][i-2]||'Клиент '+(i+1)),
+  type:['ybasic','mt','ybasic','mt','wgs30','strelka','y37','mito','wgs15','ybasic','mt','wgs30','strelka','y37','mito'][i-2]||'ybasic',
+  status:['Профиль получен','Выдан клиенту','Взято в работу','Заказ создан','Заказ создан','Взято в работу','Ожидаем получение','Заказ создан','Взято в работу','Заказ создан','Ожидаем получение','Взято в работу','Заказ создан','Заказ создан','Взято в работу'][i-2]||'В обработке',
+  deadline:['27.09.2026','27.09.2026','12.09.2026','','','','','','12.10.2026','','','','','12.09.2026','12.10.2026'][i-2]||''
+}));
+
+let selected = 0;
+let tab='client';
+let eventState={};
+let selectedOrderTests = [0,1];
+
+function urgency(t){
+  if(t.status==='Выдано клиенту') return 'green';
+  if(t.deadline==='') return 'gray';
+  const d=new Date(t.deadline.split('.').reverse().join('-')+'T00:00:00');
+  const now=new Date('2026-08-13T12:00:00');
+  const days=Math.ceil((d-now)/86400000);
+  if(days<0) return 'red';
+  if(days<=5) return 'purple';
+  if(t.status==='Взято в работу') return 'yellow';
+  return 'gray';
+}
+function statusChip(t){
+  const s=t.status;
+  let cls='neutral', dot='gray';
+  if(s==='Выдано клиенту'){cls='done';dot='green'}
+  else if(s==='Взято в работу'){cls='work';dot='yellow'}
+  else if(s==='Профиль получен'){cls='profile';dot='blue'}
+  else if(s==='В лаборатории'){cls='lab';dot='purple'}
+  else if(s==='Образец получен'){cls='received';dot='blue'}
+  else if(s==='Ожидаем получение'){cls='waiting';dot='blue'}
+  return `<span class="status-chip ${cls}"><span class="dot ${dot}"></span>${s}</span>`;
+}
+function badge(t){const x=types[t.type];return `<span class="badge ${x.cls}">${x.name}</span>`}
+
+let headerFilter = null;
+const headerFilters = {
+  urgency: {title:'Срочность', options:[['all','Все'],['gray','Нормальный срок'],['purple','Приближается дедлайн'],['red','Просрочен'],['green','Выдан клиенту'],['yellow','Взято в работу']]},
+  gns: {title:'GNS', search:true},
+  order: {title:'№ заказа', search:true},
+  person: {title:'ФИО', search:true},
+  type: {title:'Тип теста', options:[['all','Все'],...Object.entries(types).map(([k,v])=>[k,v.name])]},
+  status: {title:'Статус', options:[['all','Все'],['Заказ создан','Заказ создан'],['Ожидаем получение','Ожидаем получение'],['Образец получен','Образец получен'],['В лаборатории','В лаборатории'],['Профиль получен','Профиль получен'],['Взято в работу','Взято в работу'],['Выдано клиенту','Выдано клиенту']]},
+  deadline: {title:'Дедлайн', options:[['all','Все'],['today','Сегодня'],['1_3','1–3 дня'],['4_7','4–7 дней'],['gt7','Больше 7 дней'],['late','Просрочено'],['none','Без дедлайна']]}
+};
+let activeHeaderFilters = {urgency:'all', gns:'', order:'', person:'', type:'all', status:'all', deadline:'all'};
+
+function openHeaderFilter(key){
+  closeHeaderFilter();
+  const cfg=headerFilters[key];
+  const menu=document.createElement('div');
+  menu.className='filter-menu';
+  menu.id='headerFilterMenu';
+  let html=`<div class="filter-menu-title">${cfg.title}</div>`;
+  if(cfg.search){
+    html += `<input class="filter-search" id="headerFilterSearch" placeholder="Поиск..." value="${activeHeaderFilters[key]||''}" oninput="applyHeaderSearch('${key}',this.value)">`;
+  } else {
+    html += cfg.options.map(([val,label])=>{
+      const selectedVal=activeHeaderFilters[key];
+      const selected=(selectedVal===val);
+      let labelHtml=label;
+      if(key==='type' && val!=='all'){
+        const t={type:val}; labelHtml=`<span style="display:inline-flex;align-items:center;gap:7px"><span class="type-dot" style="background:${types[val].dot}"></span>${types[val].name}</span>`;
+      }
+      if(key==='status' && val!=='all'){
+        const color = val==='Выдано клиенту'?'#16a34a':val==='Взято в работу'?'#f59e0b':val==='Профиль получен'?'#4f46e5':val==='Ожидаем получение'?'#4f46e5':val==='В лаборатории'?'#9333ea':val==='Образец получен'?'#14b8a6':'#94a3b8';
+        labelHtml=`<span style="display:inline-flex;align-items:center;gap:7px"><span class="dot" style="background:${color}"></span>${label}</span>`;
+      }
+      return `<button class="filter-option ${selected?'selected':''}" onclick="applyHeaderFilter('${key}','${String(val).replaceAll("'","\\'")}')"><span>${labelHtml}</span>${selected?'✓':''}</button>`;
+    }).join('');
+  }
+  menu.innerHTML=html+`<div class="filter-clear"><button class="filter-option" onclick="applyHeaderFilter('${key}',${key==='gns'||key==='order'||key==='person'?"''":"'all'"})">Сбросить фильтр</button></div>`;
+  document.body.appendChild(menu);
+  const heads=[...document.querySelectorAll('.filter-btn')];
+  const btn=heads.find(b=>b.textContent.replace('▾','').trim()==cfg.title || (key==='gns'&&b.textContent.includes('GNS')) || (key==='person'&&b.textContent==='ФИО'));
+  const r=btn?btn.getBoundingClientRect():{bottom:100,left:100};
+  menu.style.left=Math.min(r.left, window.innerWidth-300)+'px';
+  menu.style.top=(r.bottom+4)+'px';
+  headerFilter=menu;
+}
+function closeHeaderFilter(){if(headerFilter){headerFilter.remove();headerFilter=null}}
+function applyHeaderSearch(key,value){
+  activeHeaderFilters[key]=value;
+  render();
+  setTimeout(()=>{if(headerFilter)document.getElementById('headerFilterSearch')?.focus()},0);
+}
+function applyHeaderFilter(key,value){
+  activeHeaderFilters[key]=value;
+  closeHeaderFilter();
+  render();
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.filter-menu') && !e.target.closest('.filter-btn')) closeHeaderFilter();
+});
+
+function render(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const f=document.getElementById('filter').value;
+  let rows=tests.filter(t=>((t.gns+' '+t.order+' '+t.person+' '+types[t.type].name).toLowerCase().includes(q)));
+  // Header filters
+  const af=activeHeaderFilters;
+  if(af.urgency!=='all') rows=rows.filter(t=>urgency(t)===af.urgency);
+  if(af.gns) rows=rows.filter(t=>t.gns.toLowerCase().includes(af.gns.toLowerCase()));
+  if(af.order) rows=rows.filter(t=>t.order.toLowerCase().includes(af.order.toLowerCase()));
+  if(af.person) rows=rows.filter(t=>t.person.toLowerCase().includes(af.person.toLowerCase()));
+  if(af.type!=='all') rows=rows.filter(t=>t.type===af.type);
+  if(af.status!=='all') rows=rows.filter(t=>t.status===af.status);
+  if(af.deadline!=='all'){
+    rows=rows.filter(t=>{
+      if(af.deadline==='none') return !t.deadline;
+      if(!t.deadline) return false;
+      const d=new Date(t.deadline.split('.').reverse().join('-')+'T00:00:00');
+      const now=new Date('2026-08-13T12:00:00');
+      const days=Math.ceil((d-now)/86400000);
+      if(af.deadline==='today') return days===0;
+      if(af.deadline==='1_3') return days>=1&&days<=3;
+      if(af.deadline==='4_7') return days>=4&&days<=7;
+      if(af.deadline==='gt7') return days>7;
+      if(af.deadline==='late') return days<0;
+      return true;
+    });
+  }
+  if(f==='waiting') rows=rows.filter(t=>t.status==='Ожидаем получение');
+  if(f==='work') rows=rows.filter(t=>t.status==='Взято в работу'||t.status==='Профиль получен');
+  if(f==='done') rows=rows.filter(t=>t.status==='Выдано клиенту');
+  if(f==='urgent') rows=rows.filter(t=>['red','purple','yellow'].includes(urgency(t)));
+  const thead=document.getElementById('thead');
+  thead.innerHTML=tab==='client'
+  ? `<tr>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('rank')">№ <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('gns')">Номер теста <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('person')">ФИО клиента <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('type')">Тип теста <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('status')">Статус клиенту <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('deadline')">Дедлайн <span>▾</span></button></th>
+</tr>`
+  : `<tr>
+  <th class="filter-head"><button class="filter-btn compact" onclick="openHeaderFilter('urgency')">• <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('gns')">GNS <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('order')">№ заказа <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('person')">ФИО <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('type')">Тип теста <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('status')">Статус <span>▾</span></button></th>
+  <th class="filter-head"><button class="filter-btn" onclick="openHeaderFilter('deadline')">Дедлайн <span>▾</span></button></th>
+</tr>`;
+  const tbody=document.getElementById('tbody');
+  tbody.innerHTML=rows.map((t,idx)=>{
+    const realIndex=tests.indexOf(t);
+    const selectedCls=realIndex===selected?'selected':'';
+    return tab==='client'
+    ? `<tr class="${selectedCls}" onclick="selectTest(${realIndex})">
+        <td class="rank">${idx+1}</td><td class="gns">${t.gns}</td><td class="person">${t.person}</td>
+        <td>${badge(t)}</td><td>${statusChip(t)}</td><td class="deadline ${urgency(t)==='red'?'late':urgency(t)==='purple'?'soon':urgency(t)==='green'?'done':''}">${t.deadline||'—'}</td>
+      </tr>`
+    : `<tr class="${selectedCls}" onclick="selectTest(${realIndex})">
+        <td class="rank"><span class="dot ${urgency(t)}"></span></td><td class="gns">${t.gns}</td><td>${t.order}</td><td class="person">${t.person}</td>
+        <td>${badge(t)}</td><td>${statusChip(t)}</td><td class="deadline ${urgency(t)==='red'?'late':urgency(t)==='purple'?'soon':urgency(t)==='green'?'done':''}">${t.deadline||'—'}</td>
+      </tr>`;
+  }).join('');
+  document.getElementById('count').textContent=`Тестов в списке: ${rows.length}`;
+  renderCard();
+}
+function selectTest(i){selected=i;render()}
+function switchTab(t){tab=t;document.getElementById('tab-client').classList.toggle('active',t==='client');document.getElementById('tab-internal').classList.toggle('active',t==='internal');render()}
+function stateFor(i){
+  const t=tests[i];
+  if(!eventState[i]) eventState[i]=[];
+  return eventState[i];
+}
+function has(i,e){return stateFor(i).includes(e)}
+function addEvent(i,e){
+  if(has(i,e)){return}
+  stateFor(i).push(e);
+  const t=tests[i];
+  const orderSteps=['created','sent','received','lab','profile','work','issued'];
+  const last=orderSteps.indexOf(e);
+  if(e==='received' && !t.deadline)t.deadline='27.09.2026';
+  if(e==='issued')t.status='Выдано клиенту';
+  else if(e==='work')t.status='Взято в работу';
+  else if(e==='profile')t.status='Профиль получен';
+  else if(e==='lab')t.status='В лаборатории';
+  else if(e==='received')t.status='Образец получен';
+  else if(e==='sent')t.status='Отправлен';
+  render();
+}
+function routeFor(t){
+  const ev=stateFor(tests.indexOf(t));
+  const steps=[
+    ['created','Заказ создан','13.08.2026 14:23'],
+    ['sent','Отправлен','13.08.2026 14:25'],
+    ['received','Образец получен','13.08.2026 14:44'],
+    ['lab','Передан в лабораторию','13.08.2026 14:45'],
+    ['profile','Профиль получен','13.08.2026 14:45'],
+    ['work','Взято в работу','13.08.2026 14:46'],
+    ['issued','Выдан клиенту','—']
+  ];
+  if(!ev.length){ev.push('created')}
+  const last=steps.reduce((acc,s,i)=>ev.includes(s[0])?i:acc,-1);
+  return `<div class="timeline">${steps.map((s,i)=>{
+    const cls=ev.includes(s[0])?'done':(i===last+1?'current':'wait');
+    const time=ev.includes(s[0])?(s[2]==='—'?'сейчас':s[2]):'';
+    return `<div class="step ${cls}"><span class="step-dot"></span><div class="step-title">${s[1]}</div>${time?`<div class="step-time">${time}</div>`:''}${i===last+1?`<div class="step-note">${s[0]==='received'?'Оператор должен подтвердить получение образца':s[0]==='lab'?'Передать конкретный тест в лабораторию':'Следующее действие'}</div>`:''}</div>`
+  }).join('')}</div>`;
+}
+function renderActions(t){
+  const i=tests.indexOf(t);
+  const seq=[['sent','Отправлен'],['received','Образец получен'],['lab','Передано в лабораторию'],['profile','Профиль получен'],['work','Взято в работу'],['issued','Выдано клиенту']];
+  return `<div class="actions">${seq.map(([e,label])=>{
+    const done=has(i,e);
+    if(done) return `<button class="action success" onclick="event.stopPropagation()"><span>✓ ${label}</span></button>`;
+    const order=['created','sent','received','lab','profile','work','issued'];
+    const last=order.reduce((a,s,j)=>has(i,s)?j:a,-1);
+    const enabled=(order.indexOf(e)===last+1);
+    return `<button class="action ${enabled?'primary':'disabled'}" ${enabled?`onclick="event.stopPropagation();addEvent(${i},'${e}')"`:'disabled'}>${label}</button>`
+  }).join('')}</div>`;
+}
+function renderCard(){
+  const t=tests[selected];
+  if(!t){document.getElementById('card').innerHTML='<div class="empty">Выберите тест</div>';return}
+  const x=types[t.type];
+  const i=selected;
+  const status=t.status;
+  const isDone=status==='Выдано клиенту';
+  const deadline=t.deadline||'Срок после получения образца';
+  const sibling=tests[(i%2===0)?Math.min(i+1,tests.length-1):i-1];
+  document.getElementById('card').innerHTML=`
+    <div class="card-scroll">
+      <div class="card-head">
+        <div class="head-left">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${badge(t)}<h2 class="card-title">${t.gns}</h2></div>
+          <div class="card-sub">${tab==='client'?'Клиентская карточка':'Операторская карточка'}</div>
+          <div class="card-status">${isDone?'● Выдано клиенту':status}</div>
+        </div>
+      </div>
+
+      <div class="section two-col">
+        <div class="deadlinebox">
+          <div class="section-title">Дедлайн</div>
+          <div class="deadline-big">${deadline}</div>
+          <div class="deadline-note">${t.deadline?'До дедлайна 14 дней':'Рассчитается после получения образца'}</div>
+        </div>
+        <div class="clientbox">
+          <div class="section-title">Клиент</div>
+          <div><span style="font-weight:500">${t.person}</span></div>
+          <div>+7 900 000-00-00</div>
+          <div>№ заказа: ${t.order}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Заказ · управление</div>
+        <div class="orderbox">
+          <div class="order-status-row">
+            <div class="field-box">
+              <div class="field-label">Статус заказа</div>
+              <select id="orderStatus" onchange="orderStatusChanged(this.value)">
+                <option>Оплачен</option>
+                <option>В работе</option>
+                <option>Частично выполнен</option>
+                <option>Выдан клиенту</option>
+                <option>Отменён</option>
+                <option>Возврат</option>
+                <option>Требует уточнения</option>
+              </select>
+            </div>
+            <div class="field-box">
+              <div class="field-label">Доставка</div>
+              <select id="deliveryMethod">
+                <option>Ozon</option>
+                <option>Почта России</option>
+                <option>СДЭК</option>
+                <option>Курьер</option>
+                <option>Яндекс</option>
+                <option>Другое</option>
+              </select>
+            </div>
+          </div>
+          <div class="order-status-row" style="margin-top:8px">
+            <div class="field-box">
+              <div class="field-label">№ отправления</div>
+              <input id="trackingNumber" value="1234567890">
+            </div>
+            <div class="field-box">
+              <div class="field-label">Дата заказа</div>
+              <input id="orderDate" value="13.08.2026">
+            </div>
+          </div>
+          <div class="field-box" style="margin-top:8px">
+            <div class="field-label">Адрес доставки</div>
+            <textarea id="deliveryAddress" rows="2">ПВЗ Ozon, Москва</textarea>
+          </div>
+          <div class="order-note">Изменения заказа не меняют события отдельных тестов.</div>
+          <div class="order-actions" style="margin-top:9px">
+            <button class="order-action" onclick="editOrderFields()">Изменить заказ</button>
+            <button class="order-action primary" onclick="saveOrder()">Сохранить заказ</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Заказ · связанные тесты</div>
+        <div class="orderbox">
+          <span style="font-weight:500">Заказ #${t.order} · 2 теста</span>
+          <div class="order-item"><span class="type-dot" style="background:${x.dot}"></span>${types[t.type].name} — ${t.gns} — ${status}</div>
+          <div class="order-item"><span class="type-dot" style="background:${types[sibling.type].dot}"></span>${types[sibling.type].name} — ${sibling.gns} — ${sibling.status}</div>
+        </div>
+      </div>
+
+      ${tab==='internal'?`
+      <div class="section">
+        <div class="section-title">Маршрут теста</div>
+        ${routeFor(t)}
+      </div>
+      <div class="section">
+        <div class="section-title">Действия</div>
+        ${renderActions(t)}
+      </div>`:`
+      <div class="section">
+        <div class="section-title">Статус выполнения</div>
+        <div class="orderbox">
+          <div>✓ Заказ оформлен</div>
+          <div>${status==='Ожидаем получение'?'○':'✓'} Образец получен</div>
+          <div>${['Профиль получен','Взято в работу','Выдано клиенту'].includes(status)?'✓':'○'} В обработке</div>
+          <div>${status==='Выдано клиенту'?'✓':'○'} Выдан клиенту</div>
+        </div>
+      </div>`}
+    </div>`;
+}
+
+function orderStatusChanged(value){
+  const label = document.getElementById('orderStatus');
+  label.style.color = value==='Отменён'||value==='Возврат' ? '#dc2626' : 'var(--text)';
+}
+function editOrderFields(){
+  const boxes = document.querySelectorAll('#card .field-box');
+  boxes.forEach(b=>b.style.boxShadow='0 0 0 2px var(--primary-soft)');
+  setTimeout(()=>boxes.forEach(b=>b.style.boxShadow=''),900);
+}
+function saveOrder(){
+  const btns = document.querySelectorAll('#card .order-action.primary');
+  btns.forEach(btn=>{
+    btn.textContent='Сохраняем...';
+    btn.disabled=true;
+    btn.classList.remove('primary');
+  });
+  setTimeout(()=>{
+    btns.forEach(btn=>{
+      btn.textContent='✓ Заказ сохранён';
+      btn.classList.add('primary');
+      btn.disabled=false;
+    });
+  },500);
+}
+
+function newOrder(){
+  const next=tests.length+1;
+  tests.push({id:next,gns:'GNPSK'+String(next).padStart(6,'0'),order:'NEW-'+next,person:'Новый клиент',type:'ybasic',status:'Заказ создан',deadline:''});
+  selected=tests.length-1; switchTab('internal');
+}
+render();
+</script>
+</body>
+</html>

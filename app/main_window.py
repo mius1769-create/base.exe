@@ -18,6 +18,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QMessageBox, QToolBar, QStatusBar, QFileDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 )
 
 from . import settings as st
@@ -59,6 +60,8 @@ class MainWindow(QMainWindow):
         act_new = QAction("Новый заказ", self)
         act_new.triggered.connect(self.on_new_order)
         tb.addAction(act_new)
+        # акцентная кнопка (раздел v1.5 header_filters: .topbtn.primary)
+        tb.widgetForAction(act_new).setObjectName("primaryToolButton")
 
         act_import = QAction("Импорт Excel", self)
         act_import.triggered.connect(self.on_import_excel)
@@ -81,13 +84,42 @@ class MainWindow(QMainWindow):
         tb.addAction(act_settings)
 
     def _build_tabs(self) -> None:
+        # Футер строится ДО вкладок: конструктор *TabWidget сразу вызывает
+        # refresh(), а тот обращается к self.footer_count_label — иначе
+        # AttributeError на первом же refresh() ещё до появления окна.
+        footer = self._build_footer_bar()
+
         self.tabs = QTabWidget()
         self.client_tab = ClientTabWidget(self.conn, self)
         self.internal_tab = InternalTabWidget(self.conn, self)
         self.tabs.addTab(self.client_tab, "Клиентская")
         self.tabs.addTab(self.internal_tab, "Внутренняя работа")
         self.tabs.currentChanged.connect(self._on_tab_changed)
-        self.setCentralWidget(self.tabs)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.tabs, stretch=1)
+        layout.addWidget(footer)
+        self.setCentralWidget(container)
+
+    def _build_footer_bar(self) -> QWidget:
+        """Строка со счётчиком тестов под вкладками (раздел v1.5
+        header_filters: .footer). Отдельно от QStatusBar — тот остаётся для
+        служебных сообщений (Telegram, backup)."""
+        bar = QWidget()
+        bar.setObjectName("footerBar")
+        bar.setFixedHeight(30)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(18, 0, 18, 0)
+        self.footer_count_label = QLabel("Тестов в списке: 0")
+        lay.addWidget(self.footer_count_label)
+        lay.addStretch(1)
+        return bar
+
+    def set_footer_count(self, count: int) -> None:
+        self.footer_count_label.setText(f"Тестов в списке: {count}")
 
     def _build_status_bar(self) -> None:
         self.setStatusBar(QStatusBar())
