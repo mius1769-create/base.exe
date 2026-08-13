@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import repository as repo
+from . import product_catalog as pcat
 
 
 class ProductMappingsDialog(QDialog):
@@ -59,7 +60,7 @@ class ProductMappingsDialog(QDialog):
         self.types_list.setSelectionMode(QListWidget.MultiSelection)
         self.types_list.setMaximumHeight(140)
         for tt in repo.list_test_types(self.conn):
-            item = QListWidgetItem(f"{tt['display_name']} ({tt['code']})")
+            item = QListWidgetItem(f"{pcat.get_display_name(tt['code'])} ({tt['code']})")
             item.setData(1000, tt["code"])
             self.types_list.addItem(item)
         types_row.addWidget(self.types_list, stretch=1)

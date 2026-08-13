@@ -302,6 +302,47 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ROLLBACK")
         raise
 
+    _dedupe_test_events_and_create_unique_index(conn)
+
+
+def _dedupe_test_events_and_create_unique_index(conn: sqlite3.Connection) -> None:
+    """
+    Один раз при каждом запуске: если на диске уже есть дубли test_events
+    (напр. с версии до исправления бага двойного клика — см. баг-репорт
+    "Повторное нажатие кнопки"), сначала подчищает их (оставляя самую
+    раннюю запись на каждую пару test_id+event_type), и только потом
+    накладывает UNIQUE-индекс. Без этой очистки CREATE UNIQUE INDEX упал
+    бы с ошибкой на уже испорченных данных. Идемпотентно — на чистой базе
+    ничего не удаляет и не падает при повторных запусках.
+    """
+    from datetime import datetime
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        dup_groups = conn.execute(
+            """SELECT test_id, event_type, COUNT(*) c, MIN(id) keep_id
+               FROM test_events GROUP BY test_id, event_type HAVING c > 1"""
+        ).fetchall()
+        removed = 0
+        for g in dup_groups:
+            cur = conn.execute(
+                "DELETE FROM test_events WHERE test_id = ? AND event_type = ? AND id != ?",
+                (g["test_id"], g["event_type"], g["keep_id"]),
+            )
+            removed += cur.rowcount
+        if removed:
+            conn.execute(
+                """INSERT INTO audit_log (timestamp, user_name, entity, entity_id, field, old_value, new_value, reason)
+                   VALUES (?, 'schema-migration', 'system', NULL, 'test_events_dedup', NULL, ?, ?)""",
+                (datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), str(removed),
+                 "автоматическая очистка дублей событий перед наложением UNIQUE-индекса (баг двойного клика)"),
+            )
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_test_events_unique_stage ON test_events(test_id, event_type)")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
     cur = conn.execute("SELECT version FROM schema_version")

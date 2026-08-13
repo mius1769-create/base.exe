@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from . import business_logic as bl
 from . import repository as repo
+from . import product_catalog as pcat
 
 COLUMNS = [
     ("gns_number", "Номер"),
@@ -78,12 +79,12 @@ class ClientTabWidget(QWidget):
 
         self.card = ClientCardWidget(self)
         splitter.addWidget(self.card)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)  # карточка ~30% ширины (раздел 5 ТЗ)
 
         root.addWidget(splitter, stretch=1)
 
-    def refresh(self) -> None:
+    def refresh(self, *, keep_selection_test_id: Optional[int] = None) -> None:
         search = self.search_edit.text().strip() or None
         rows = repo.list_tests_with_order(self.conn, search=search, quick_filter="all", include_archived=False)
         self._rows_cache = rows
@@ -92,15 +93,21 @@ class ClientTabWidget(QWidget):
         events_by_test = repo.list_events_for_test_ids(self.conn, test_ids)
 
         self.table.setRowCount(len(rows))
+        select_row_idx = None
         for i, row in enumerate(rows):
             events = events_by_test.get(row["test_id"], [])
             client_status = bl.client_status_label(events)
 
             for col_i, (field_name, _label) in enumerate(COLUMNS):
-                text = client_status if field_name == "client_status" else str(row[field_name] or "")
+                if field_name == "client_status":
+                    text = client_status
+                elif field_name == "test_type":
+                    text = pcat.get_display_name(row["test_type"])
+                else:
+                    text = str(row[field_name] or "")
                 item = QTableWidgetItem(text)
                 if field_name == "test_type":
-                    type_hex = bl.TEST_TYPE_COLORS.get(row["test_type"])
+                    type_hex = pcat.get_color(row["test_type"])
                     if type_hex:
                         item.setBackground(QColor(type_hex))
                         item.setForeground(QColor("#14151a"))
@@ -108,7 +115,14 @@ class ClientTabWidget(QWidget):
                     item.setData(Qt.UserRole, row["test_id"])
                 self.table.setItem(i, col_i, item)
 
-        self.card.clear()
+            if keep_selection_test_id is not None and row["test_id"] == keep_selection_test_id:
+                select_row_idx = i
+
+        if select_row_idx is not None:
+            self.table.selectRow(select_row_idx)
+            self.card.show_test(keep_selection_test_id)  # см. internal_tab.py: сигнал может не сработать
+        else:
+            self.card.clear()
 
     def _on_row_selected(self) -> None:
         items = self.table.selectedItems()
@@ -126,6 +140,7 @@ class ClientCardWidget(QFrame):
         self.tab = tab
         self.conn = tab.conn
         self.setFrameShape(QFrame.StyledPanel)
+        self.setObjectName("cardPanel")
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -169,7 +184,7 @@ class ClientCardWidget(QFrame):
         events = repo.list_events_for_test(conn, test_id)
         client_status = bl.client_status_label(events)
 
-        self.header_label.setText(f"{row['gns_number']} · {row['test_type']}")
+        self.header_label.setText(f"{row['gns_number']} · {pcat.get_display_name(row['test_type'])}")
         self.status_label.setText(client_status)
 
         deadline_text = "уточняется"

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from . import db as dbmod
 from . import repository as repo
+from . import theme
 from .main_window import MainWindow
 
 
@@ -14,6 +15,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("GENOPOISK CRM")
     app.setOrganizationName("GENOPOISK")
+    theme.apply(app)
 
     db_path = dbmod.get_db_path()
     conn = dbmod.connect(db_path)

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from . import repository as repo
 from . import business_logic as bl
+from . import product_catalog as pcat
 
 
 class NewOrderDialog(QDialog):
@@ -60,7 +61,7 @@ class NewOrderDialog(QDialog):
         self.type_list.setSelectionMode(QListWidget.MultiSelection)
         self._test_types = repo.list_test_types(self.conn)
         for tt in self._test_types:
-            item = QListWidgetItem(f"{tt['display_name']} ({tt['base_deadline_days']} дн.)")
+            item = QListWidgetItem(f"{pcat.get_display_name(tt['code'])} ({tt['base_deadline_days']} дн.)")
             item.setData(1000, tt["code"])
             self.type_list.addItem(item)
         layout.addWidget(self.type_list)
@@ -108,7 +109,7 @@ class NewOrderDialog(QDialog):
                 if not tt["report_allowed"]:
                     QMessageBox.warning(
                         self, "Недопустимая комплектация",
-                        f"Для «{tt['display_name']}» добавление отчёта запрещено.",
+                        f"Для «{pcat.get_display_name(tt['code'])}» добавление отчёта запрещено.",
                     )
                     return
 

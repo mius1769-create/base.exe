@@ -478,12 +478,29 @@ def record_event(
     передайте свой ISO-datetime для ручной корректировки задним числом
     (is_manual_correction=True тогда стоит проставить явно).
 
+    ИДЕМПОТЕНТНОСТЬ (найденный баг: двойной клик создавал несколько
+    одинаковых событий 'received' и т.п.): каждый event_type может
+    существовать для теста только ОДИН раз. Повторный вызов record_event()
+    с уже существующим event_type — это no-op: не создаёт вторую запись,
+    не меняет event_time, не трогает зеркалированные колонки и не
+    пересчитывает дедлайн повторно. Просто возвращается id уже
+    существующей записи. Если нужно скорректировать время уже
+    зафиксированного события — используйте отдельную correct_event_time()
+    (это осознанное редактирование, а не повторное "нажатие кнопки").
+
+    Защита на двух уровнях:
+      1) проверка "уже существует?" ДО INSERT — закрывает подавляющее
+         большинство случаев (в т.ч. двойной клик в UI);
+      2) UNIQUE-индекс idx_test_events_unique_stage на (test_id, event_type)
+         в самой БД — страхует от гонки, если два вызова всё же дойдут до
+         INSERT почти одновременно; IntegrityError перехватывается и
+         трактуется точно так же, как обнаруженный дубль.
+
     Автоматически зеркалирует событие в соответствующую старую колонку
     tests (см. _EVENT_MIRROR_FIELD), включая пересчёт дедлайна для
-    'received' — так что вся существующая бизнес-логика (calculate_deadline,
-    calculate_row_color, exporter) продолжает работать без изменений.
+    'received' — но ТОЛЬКО при первой, реальной записи события.
 
-    Возвращает id созданной записи test_events.
+    Возвращает id записи test_events (существующей или новой).
     """
     if event_type not in bl.EVENT_ORDER:
         raise ValueError(f"Неизвестный тип события: {event_type!r}. Допустимые: {bl.EVENT_ORDER}")
@@ -493,12 +510,33 @@ def record_event(
 
     conn.execute("BEGIN IMMEDIATE")
     try:
-        cur = conn.execute(
-            """INSERT INTO test_events
-               (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at, internal_note)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (test_id, event_type, event_time_iso, int(is_manual_correction), operator, ts, note),
-        )
+        existing = conn.execute(
+            "SELECT id FROM test_events WHERE test_id = ? AND event_type = ?",
+            (test_id, event_type),
+        ).fetchone()
+        if existing is not None:
+            # идемпотентный no-op: ничего не создаём, ничего не зеркалируем,
+            # дедлайн не пересчитываем — именно это требовалось в баг-репорте
+            conn.execute("COMMIT")
+            return existing["id"]
+
+        try:
+            cur = conn.execute(
+                """INSERT INTO test_events
+                   (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at, internal_note)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (test_id, event_type, event_time_iso, int(is_manual_correction), operator, ts, note),
+            )
+        except sqlite3.IntegrityError:
+            # редкая гонка: кто-то успел вставить между нашей проверкой и INSERT —
+            # трактуем как тот же самый идемпотентный no-op, а не как ошибку
+            row = conn.execute(
+                "SELECT id FROM test_events WHERE test_id = ? AND event_type = ?",
+                (test_id, event_type),
+            ).fetchone()
+            conn.execute("COMMIT")
+            return row["id"]
+
         event_id = cur.lastrowid
 
         write_audit(
@@ -521,6 +559,54 @@ def record_event(
 
         conn.execute("COMMIT")
         return event_id
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def correct_event_time(
+    conn: sqlite3.Connection,
+    event_id: int,
+    new_event_time: str,
+    *,
+    user_name: Optional[str] = None,
+    note: Optional[str] = None,
+) -> None:
+    """
+    Осознанная ручная корректировка времени УЖЕ существующего события
+    (кнопка "✎ изменить" в UI) — в отличие от record_event(), которая
+    идемпотентна и намеренно игнорирует повторные вызовы. Тоже
+    перезеркалирует соответствующую колонку/дедлайн, если событие влияет
+    на них (напр. 'received').
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute("SELECT * FROM test_events WHERE id = ?", (event_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"Событие {event_id} не найдено")
+
+        old_time = row["event_time"]
+        conn.execute(
+            "UPDATE test_events SET event_time = ?, is_manual_correction = 1 WHERE id = ?",
+            (new_event_time, event_id),
+        )
+        write_audit(
+            conn, user_name=user_name, entity="test", entity_id=row["test_id"],
+            field=f"event:{row['event_type']}", old_value=old_time, new_value=new_event_time,
+            reason=note or "ручная корректировка времени события",
+        )
+
+        mirror_field = _EVENT_MIRROR_FIELD.get(row["event_type"])
+        if mirror_field:
+            changes: dict[str, Any] = {}
+            if mirror_field == "sample_received_at":
+                changes[mirror_field] = new_event_time[:10]
+            else:
+                changes[mirror_field] = new_event_time
+            _update_test_fields_locked(conn, row["test_id"], changes, user_name=user_name,
+                                        reason="зеркалирование из test_events (корректировка)")
+
+        conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise

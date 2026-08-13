@@ -15,6 +15,8 @@ from datetime import date
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import sqlite3
+
 import pytest
 
 from app import business_logic as bl
@@ -202,6 +204,167 @@ def test_migration_is_idempotent_and_skips_already_migrated(conn):
     second = repo.migrate_existing_tests_to_events(conn)
     assert second == 0
     assert len(repo.list_events_for_test(conn, test_id)) == events_before  # не задвоилось
+
+
+# ---------------------------------------------------------------------
+# Идемпотентность (найденный баг: двойной клик создавал дубли событий)
+# ---------------------------------------------------------------------
+
+def test_double_click_received_creates_one_event(conn):
+    """Двойной вызов record_event(received) → одно событие."""
+    order_id, test_id = _make_test(conn)
+    id1 = repo.record_event(conn, test_id, "received", operator="operator1")
+    id2 = repo.record_event(conn, test_id, "received", operator="operator1")
+    assert id1 == id2
+    events = [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "received"]
+    assert len(events) == 1
+
+
+def test_triple_call_received_creates_one_event(conn):
+    """Тройной вызов record_event(received) → одно событие."""
+    order_id, test_id = _make_test(conn)
+    repo.record_event(conn, test_id, "received")
+    repo.record_event(conn, test_id, "received")
+    repo.record_event(conn, test_id, "received")
+    events = [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "received"]
+    assert len(events) == 1
+
+
+@pytest.mark.parametrize("event_type", ["dispatched", "received", "handed_to_lab", "profile_received", "in_progress", "issued"])
+def test_repeated_call_for_every_one_shot_event_type_creates_one_event(conn, event_type):
+    """Повторный вызов ЛЮБОГО одноразового этапа (не только received) → одно событие."""
+    order_id, test_id = _make_test(conn)
+    # доводим до нужного этапа по порядку, иначе часть событий не имеет смысла проверять изолированно
+    for et in bl.EVENT_ORDER:
+        if et == "order_created":
+            continue
+        repo.record_event(conn, test_id, et)
+        if et == event_type:
+            break
+    # повторяем именно проверяемый этап ещё дважды
+    repo.record_event(conn, test_id, event_type)
+    repo.record_event(conn, test_id, event_type)
+
+    matching = [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == event_type]
+    assert len(matching) == 1, f"{event_type}: ожидалось 1 событие, получено {len(matching)}"
+
+
+def test_repeated_lab_sent_creates_one_event(conn):
+    """Явный тест по формулировке бага: повторный lab_sent (handed_to_lab) → одно событие."""
+    order_id, test_id = _make_test(conn)
+    repo.record_event(conn, test_id, "dispatched")
+    repo.record_event(conn, test_id, "received")
+    repo.record_event(conn, test_id, "handed_to_lab", operator="operator1")
+    repo.record_event(conn, test_id, "handed_to_lab", operator="operator1")
+    repo.record_event(conn, test_id, "handed_to_lab", operator="operator1")
+    events = [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "handed_to_lab"]
+    assert len(events) == 1
+
+
+def test_db_level_unique_constraint_blocks_direct_duplicate_insert(conn):
+    """Проверка второго уровня защиты — сама БД, в обход record_event()."""
+    order_id, test_id = _make_test(conn)
+    conn.execute(
+        "INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at) "
+        "VALUES (?, 'received', '2026-01-01T10:00:00', 0, 'x', '2026-01-01T10:00:00')",
+        (test_id,),
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at) "
+            "VALUES (?, 'received', '2026-01-01T11:00:00', 0, 'x', '2026-01-01T11:00:00')",
+            (test_id,),
+        )
+
+
+def test_dedupe_on_init_cleans_pre_existing_duplicates_before_indexing(tmp_path):
+    """Если на диске уже есть дубли (реальный сценарий с Windows EXE до фикса),
+    повторный init_db() их подчищает и накладывает UNIQUE-индекс без падения."""
+    db_path = tmp_path / "legacy.db"
+    conn = dbmod.connect(db_path)
+    dbmod.init_db(conn)
+    order_id, test_id = _make_test(conn)
+
+    # имитируем баг: руками вставляем дубли мимо record_event(), как это
+    # реально произошло на Windows до исправления
+    conn.execute("DROP INDEX IF EXISTS idx_test_events_unique_stage")
+    for _ in range(3):
+        conn.execute(
+            "INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at) "
+            "VALUES (?, 'received', '2026-01-01T10:00:00', 0, 'legacy-bug', '2026-01-01T10:00:00')",
+            (test_id,),
+        )
+    dup_count_before = len(
+        [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "received"]
+    )
+    assert dup_count_before == 3
+
+    dbmod.init_db(conn)  # повторный запуск, как при следующем старте приложения
+
+    dup_count_after = len(
+        [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "received"]
+    )
+    assert dup_count_after == 1
+
+    # индекс реально наложен и работает
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at) "
+            "VALUES (?, 'received', '2026-01-01T12:00:00', 0, 'x', '2026-01-01T12:00:00')",
+            (test_id,),
+        )
+    conn.close()
+
+
+# ---------------------------------------------------------------------
+# Дедлайн фиксируется от ПЕРВОГО received, повторный вызов его не меняет
+# ---------------------------------------------------------------------
+
+def test_repeated_received_does_not_change_deadline_or_sample_date(conn):
+    order_id, test_id = _make_test(conn)
+    repo.record_event(conn, test_id, "received", event_time="2026-09-01T10:00:00")
+
+    row1 = conn.execute(
+        "SELECT sample_received_at, deadline_date, deadline_days FROM tests WHERE test_id=?", (test_id,)
+    ).fetchone()
+    assert row1["sample_received_at"] == "2026-09-01"
+    assert row1["deadline_date"] == "2026-10-01"
+
+    # повторный вызов с ДРУГИМ временем — не должен ничего изменить
+    repo.record_event(conn, test_id, "received", event_time="2026-12-25T18:00:00")
+
+    row2 = conn.execute(
+        "SELECT sample_received_at, deadline_date, deadline_days FROM tests WHERE test_id=?", (test_id,)
+    ).fetchone()
+    assert row2["sample_received_at"] == row1["sample_received_at"]
+    assert row2["deadline_date"] == row1["deadline_date"]
+    assert row2["deadline_days"] == row1["deadline_days"]
+
+    events = [e for e in repo.list_events_for_test(conn, test_id) if e["event_type"] == "received"]
+    assert len(events) == 1
+    assert events[0]["event_time"] == "2026-09-01T10:00:00"  # осталось исходное, не перезаписалось
+
+
+# ---------------------------------------------------------------------
+# correct_event_time — осознанная корректировка ОТЛИЧАЕТСЯ от повторного клика
+# ---------------------------------------------------------------------
+
+def test_correct_event_time_explicitly_updates_and_remirrors(conn):
+    order_id, test_id = _make_test(conn)
+    event_id = repo.record_event(conn, test_id, "received", event_time="2026-09-01T10:00:00")
+
+    repo.correct_event_time(conn, event_id, "2026-09-02T09:00:00", user_name="operator1",
+                             note="забыли отметить вовремя")
+
+    row = conn.execute("SELECT sample_received_at, deadline_date FROM tests WHERE test_id=?", (test_id,)).fetchone()
+    assert row["sample_received_at"] == "2026-09-02"
+    assert row["deadline_date"] == "2026-10-02"
+
+    events = repo.list_events_for_test(conn, test_id)
+    received = [e for e in events if e["event_type"] == "received"][0]
+    assert received["event_time"] == "2026-09-02T09:00:00"
+    assert received["is_manual_correction"] == 1
+    assert len(events) == 2  # order_created + received, всё ещё одно received
 
 
 # ---------------------------------------------------------------------

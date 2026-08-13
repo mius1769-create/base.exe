@@ -14,13 +14,15 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from . import repository as repo
+from . import product_catalog as pcat
 
 COLUMNS = [
     ("gns_number", "GNS"),
     ("order_no", "№ заказа"),
     ("customer_name", "ФИО"),
     ("contacts", "Контакты"),
-    ("test_type", "Тип теста"),
+    ("test_type", "Тип теста"),          # коммерческое название (напр. "Y Базовый")
+    ("_technical_code", "Технический код"),  # исходный код из БД (напр. "Y50") — для сверки/отладки персоналом
     ("report_option", "Комплектация"),
     ("order_status", "Статус заказа"),
     ("sample_received_at", "Дата получения образца"),
@@ -66,9 +68,14 @@ def export_orders_to_excel(
     for row in rows:
         values = []
         for field_name, _label in COLUMNS:
-            v = row[field_name]
-            if field_name == "is_historical":
-                v = "Да" if v else ""
+            if field_name == "_technical_code":
+                v = row["test_type"]
+            elif field_name == "test_type":
+                v = pcat.get_display_name(row["test_type"])
+            elif field_name == "is_historical":
+                v = "Да" if row[field_name] else ""
+            else:
+                v = row[field_name]
             values.append(v if v is not None else "")
         ws.append(values)
 

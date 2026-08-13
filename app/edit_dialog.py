@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from . import repository as repo
 from . import business_logic as bl
+from . import product_catalog as pcat
 
 
 def _qdate_to_iso(qd: QDate) -> str | None:
@@ -126,7 +127,7 @@ class TestEditDialog(QDialog):
         self.test_type_combo = QComboBox()
         self._test_types = repo.list_test_types(self.conn)
         for tt in self._test_types:
-            self.test_type_combo.addItem(tt["display_name"], userData=tt["code"])
+            self.test_type_combo.addItem(pcat.get_display_name(tt["code"]), userData=tt["code"])
         idx = next((i for i, tt in enumerate(self._test_types) if tt["code"] == r["test_type"]), 0)
         self.test_type_combo.setCurrentIndex(idx)
         form.addRow("Тип теста*", self.test_type_combo)

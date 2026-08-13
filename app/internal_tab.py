@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from . import business_logic as bl
 from . import repository as repo
 from . import settings as st
+from . import product_catalog as pcat
 
 URGENCY_COLOR_MAP = {
     bl.RowColor.GREEN: QColor("#d7f5d7"),
@@ -105,8 +106,8 @@ class InternalTabWidget(QWidget):
 
         self.card = InternalCardWidget(self)
         splitter.addWidget(self.card)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)  # карточка ~30% ширины (раздел 5 ТЗ)
 
         root.addWidget(splitter, stretch=1)
 
@@ -138,12 +139,14 @@ class InternalTabWidget(QWidget):
                     text = internal_status
                 elif field_name == "deadline_date":
                     text = fmt_date(row["deadline_date"])
+                elif field_name == "test_type":
+                    text = pcat.get_display_name(row["test_type"])
                 else:
                     text = str(row[field_name] or "")
                 item = QTableWidgetItem(text)
                 item.setBackground(URGENCY_COLOR_MAP[urgency])
                 if field_name == "test_type":
-                    type_hex = bl.TEST_TYPE_COLORS.get(row["test_type"])
+                    type_hex = pcat.get_color(row["test_type"])
                     if type_hex:
                         item.setBackground(QColor(type_hex))
                         item.setForeground(QColor("#14151a"))
@@ -157,7 +160,14 @@ class InternalTabWidget(QWidget):
         self.main_window.statusBar().showMessage(f"Тестов в списке: {len(rows)}")
 
         if select_row_idx is not None:
+            # ВАЖНО: если выбранная строка не меняет индекс (напр. единственная
+            # строка в списке, или клик по уже выбранной), Qt не переотправляет
+            # itemSelectionChanged — карточка тогда НЕ обновилась бы сама,
+            # несмотря на то, что данные в БД уже новые. Обновляем карточку
+            # напрямую, не полагаясь только на сигнал выбора (найденный баг:
+            # событие писалось в БД, но карточка оставалась старой).
             self.table.selectRow(select_row_idx)
+            self.card.show_test(keep_selection_test_id)
         else:
             self.card.clear()
 
@@ -168,6 +178,7 @@ class InternalTabWidget(QWidget):
             item = self.table.item(i, 0)
             if item and item.data(Qt.UserRole) == test_id:
                 self.table.selectRow(i)
+                self.card.show_test(test_id)  # та же причина — сигнал может не сработать
                 return
         # тест не попадает под текущий фильтр/поиск — просто открываем карточку напрямую
         self.card.show_test(test_id)
@@ -188,8 +199,10 @@ class InternalCardWidget(QFrame):
         self.tab = tab
         self.conn = tab.conn
         self.setFrameShape(QFrame.StyledPanel)
+        self.setObjectName("cardPanel")
         self._test_id: Optional[int] = None
         self._order_id: Optional[int] = None
+        self._action_in_flight = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -254,6 +267,7 @@ class InternalCardWidget(QFrame):
             item = self.actions_grid.takeAt(0)
             w = item.widget()
             if w:
+                w.hide()  # немедленно скрыть, не дожидаясь фактического deleteLater()
                 w.deleteLater()
         self._action_buttons = []
 
@@ -304,7 +318,7 @@ class InternalCardWidget(QFrame):
             for s in siblings:
                 marker = "▶" if s["test_id"] == test_id else "•"
                 s_status = bl.internal_status_label(sib_events.get(s["test_id"], []))
-                lines.append(f"{marker} {s['test_type']} — {s['gns_number']} — {s_status}")
+                lines.append(f"{marker} {pcat.get_display_name(s['test_type'])} — {s['gns_number']} — {s_status}")
             self.sibling_box.setText("<br>".join(lines))
             self.sibling_box.setVisible(True)
         else:
@@ -335,42 +349,73 @@ class InternalCardWidget(QFrame):
 
         self.comment_block.setText(f"<i>{row['comments'] or ''}</i>")
 
+        # Пересборка QGridLayout с быстрыми действиями в рантайме (после
+        # record_event) может сбить пересчёт геометрии родительского
+        # QVBoxLayout в headless/Xvfb-рендере — верхние лейблы визуально
+        # "пропадают", хотя их текст на самом деле корректно установлен.
+        # Форсируем полную инвалидацию и пересчёт layout.
+        self.layout().invalidate()
+        self.layout().activate()
+        self.updateGeometry()
+        self.update()
+
     def _build_action_buttons(self, events) -> None:
         self._clear_action_buttons()
         present = {e["event_type"] for e in events}
         next_et = bl.next_action_event_type(events)
-        awaiting = bl.is_awaiting_receipt(events)
 
         col = 0
         row_idx = 0
         for et in bl.EVENT_ORDER:
             if et == "order_created":
                 continue  # уже произошло при создании, кнопка не нужна
-            label = bl.EVENT_LABELS_INTERNAL[et]
             btn = QPushButton()
+            btn.setMinimumHeight(32)
             if et in present:
-                btn.setText(f"✓ {label}")
+                btn.setText(f"✓ {bl.EVENT_LABELS_INTERNAL[et]}")
                 btn.setEnabled(False)
+                btn.setStyleSheet("color: #4b4d57;")
             elif et == next_et:
-                btn.setText(label)
-                btn.setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600;")
-                btn.clicked.connect(lambda checked=False, e=et: self._on_quick_action(e))
+                btn.setText(bl.ACTION_BUTTON_LABELS[et])
+                btn.setStyleSheet(
+                    "background-color: #4f46e5; color: white; font-weight: 600; "
+                    "border: none; border-radius: 7px; padding: 8px 10px;"
+                )
+                btn.clicked.connect(lambda checked=False, e=et, b=btn: self._on_quick_action(e, b))
             else:
-                btn.setText(label)
+                btn.setText(bl.ACTION_BUTTON_LABELS[et])
                 btn.setEnabled(False)
             self.actions_grid.addWidget(btn, row_idx, col)
             self._action_buttons.append(btn)
             col += 1
-            if col >= 3:
+            if col >= 2:
                 col = 0
                 row_idx += 1
 
-    def _on_quick_action(self, event_type: str) -> None:
-        if self._test_id is None:
+    def _on_quick_action(self, event_type: str, button: QPushButton) -> None:
+        """
+        Баг-репорт "Повторное нажатие кнопки" — защита на уровне UI:
+        кнопка немедленно блокируется и показывает 'Сохраняем...' СРАЗУ по
+        клику, до обращения к БД, так что даже очень быстрый второй клик
+        физически не попадает на уже отключённую кнопку. Вторая линия
+        защиты (идемпотентность record_event() + UNIQUE-индекс в БД)
+        подстраховывает на случай гонки на уровне самого Qt/ОС.
+        """
+        if self._test_id is None or self._action_in_flight:
             return
-        operator = st.get_setting(self.conn, "current_operator_name", "") or "оператор"
-        repo.record_event(self.conn, self._test_id, event_type, operator=operator, user_name=operator)
-        self.tab.refresh(keep_selection_test_id=self._test_id)
+        self._action_in_flight = True
+        button.setEnabled(False)
+        button.setText("Сохраняем…")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()  # немедленно перерисовать кнопку до записи в БД
+
+        try:
+            operator = st.get_setting(self.conn, "current_operator_name", "") or "оператор"
+            repo.record_event(self.conn, self._test_id, event_type, operator=operator, user_name=operator)
+            # единая точка синхронизации: обновляет обе вкладки + карточку + строку списка
+            self.tab.main_window.on_event_saved(self._test_id)
+        finally:
+            self._action_in_flight = False
 
     def _on_edit_clicked(self) -> None:
         if self._test_id is None:

@@ -105,6 +105,20 @@ class MainWindow(QMainWindow):
         self.client_tab.refresh()
         self.internal_tab.refresh()
 
+    def on_event_saved(self, test_id: int) -> None:
+        """
+        Единая точка синхронизации после record_event() (баг-репорт
+        "Синхронизация вкладок"): обновляет ОБЕ вкладки и карточку сразу,
+        без переключения вкладок / повторного поиска / ручного обновления.
+
+            record_event() -> event_saved -> refresh internal tab
+                                           -> refresh client tab
+                                           -> refresh selected card
+                                           -> refresh list row
+        """
+        self.internal_tab.refresh(keep_selection_test_id=test_id)
+        self.client_tab.refresh(keep_selection_test_id=test_id)
+
     # ------------------------------------------------------------------
     # Toolbar actions
     # ------------------------------------------------------------------
