@@ -1,0 +1,40 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+dist_installer/
+
+# База данных (реальные клиентские данные — никогда не в репозитории)
+*.db
+*.db-wal
+*.db-shm
+genopoisk.db
+genopoisk_migrated.db
+genopoisk_export.xlsx
+
+# Excel-файлы с реальными заказами/клиентами (миграция, экспорт, любые рабочие выгрузки)
+*.xlsx
+*.xlsm
+*.xls
+!packaging/**/*.xlsx
+
+# Резервные копии БД (могут содержать реальные данные)
+*backup*/
+backups/
+*.db.bak
+
+# Секреты: Bot Token, переменные окружения, любые локальные конфиги с учётными данными
+.env
+.env.*
+secrets.json
+*_secrets.json
+*.pem
+*.key
+
+# Персональные/служебные файлы разработки
+venv/
+.venv/
+*.spec.bak
+.DS_Store
+Thumbs.db
