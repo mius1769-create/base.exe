@@ -1,0 +1,65 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          pip install pytest
+          python -m pytest tests/ -v
+
+      - name: Build onedir bundle with PyInstaller
+        run: |
+          pyinstaller packaging\genopoisk_crm.spec --distpath dist --workpath build --noconfirm
+
+      - name: Smoke-test built EXE
+        run: |
+          $proc = Start-Process -FilePath "dist\GENOPOISK_CRM\GENOPOISK_CRM.exe" -PassThru
+          Start-Sleep -Seconds 5
+
+          $running = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+
+          if ($null -eq $running) {
+            Write-Error "GENOPOISK_CRM.exe завершился сразу после запуска"
+            exit 1
+          }
+
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "EXE успешно запустился и проработал 5 секунд без падения"
+
+      - name: Build Setup installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: GENOPOISK_CRM-portable
+          path: dist/GENOPOISK_CRM/
+
+      - name: Upload Setup installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: GENOPOISK_CRM-Setup
+          path: dist_installer/GENOPOISK_CRM_Setup.exe
