@@ -159,7 +159,9 @@ class HaplogroupsTabWidget(QWidget):
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
-            color = hlogic.calculate_haplo_color(row["nevgen_prediction"], row["semargl_prediction"])
+            color = hlogic.calculate_haplo_color(
+                row["nevgen_prediction"], row["semargl_prediction"], row["y_dna"]
+            )
             project_path = prepo.get_project_path(self.conn, row["project_id"])
             values = {
                 "test_number": row["test_number"] or "",

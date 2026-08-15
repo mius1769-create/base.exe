@@ -123,29 +123,66 @@ def test_get_descendant_ids(conn):
 
 
 # ---------------------------------------------------------------------
-# Цветовая логика NevGen vs Semargl
+# Цветовая логика NevGen vs Semargl (якорь — подтверждённое поле Y-ДНК,
+# а не сравнение root(NevGen) с root(Semargl) друг с другом)
 # ---------------------------------------------------------------------
 
 def test_color_green_when_snp_found_in_semargl():
-    assert hlogic.calculate_haplo_color("R1a-Z93-Z94", "R1a-Z93-Z94-YP1337") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color(
+        "R1a-Z93-Z94", "R1a-Z93-Z94-YP1337", "R1a"
+    ) == hlogic.HaploColor.GREEN
 
 
-def test_color_yellow_when_root_matches_but_snp_missing():
-    assert hlogic.calculate_haplo_color("R1a-Z93-Z94", "R1a-Z93") == hlogic.HaploColor.YELLOW
+def test_color_green_examples_from_review():
+    assert hlogic.calculate_haplo_color(
+        "I-CTS10228", "I > CTS10228 > Y3120 > PH908", "I2a"
+    ) == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color(
+        "R-M458", "R1a > M458 > YP417", "R1a"
+    ) == hlogic.HaploColor.GREEN
 
 
-def test_color_red_when_roots_differ():
-    assert hlogic.calculate_haplo_color("R1a-Z93", "R1b-M269") == hlogic.HaploColor.RED
+def test_color_yellow_when_snp_missing_but_y_dna_root_matches_semargl():
+    """Ревью-кейс: Y-ДНК=R1a, NevGen=R-Z280, Semargl=R-M458 -> SNP не найден,
+    но корень Y-ДНК совпадает с корнем Semargl -> YELLOW."""
+    assert hlogic.calculate_haplo_color(
+        "R-Z280", "R-M458", "R1a"
+    ) == hlogic.HaploColor.YELLOW
 
 
-def test_color_none_when_data_missing():
-    assert hlogic.calculate_haplo_color("", "R1a-Z93") == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color("R1a-Z93", None) == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color(None, None) == hlogic.HaploColor.NONE
+def test_color_red_when_snp_missing_and_y_dna_root_differs_from_semargl():
+    """Ревью-кейс: Y-ДНК=I2a, Semargl указывает ветвь R1a -> корни не
+    совпадают -> RED, независимо от того, что написано в NevGen."""
+    assert hlogic.calculate_haplo_color(
+        "I-M223", "R1a > M405 > L459", "I2a"
+    ) == hlogic.HaploColor.RED
+
+
+def test_color_nevgen_own_root_is_never_compared_directly_to_semargl():
+    """Бывший баг (пример из ревью): NevGen 'R-M458' и Semargl 'R > Z280 >
+    CTS1211' имеют один и тот же терсовый корневой токен 'R', и старая
+    логика (root(NevGen) == root(Semargl)) давала здесь YELLOW — хотя это
+    разные ветви. Новая логика вообще не сравнивает root(NevGen) с
+    root(Semargl) друг с другом: корень берётся только из подтверждённого
+    Y-ДНК. Если Y-ДНК указывает на другую ветвь ('I2a'), результат — RED,
+    несмотря на то, что NevGen и Semargl совпадали бы по старому критерию."""
+    assert hlogic.calculate_haplo_color(
+        "R-M458", "R > Z280 > CTS1211", "I2a"
+    ) == hlogic.HaploColor.RED
+
+
+def test_color_none_when_any_field_missing():
+    assert hlogic.calculate_haplo_color("", "R1a-Z93", "R1a") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color("R1a-Z93", None, "R1a") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color("R1a-Z93", "R1a-Z93", "") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color("R1a-Z93", "R1a-Z93", None) == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color(None, None, None) == hlogic.HaploColor.NONE
 
 
 def test_color_green_case_insensitive():
-    assert hlogic.calculate_haplo_color("r1a-z94", "R1A-Z93-Z94") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color(
+        "r1a-z94", "R1A-Z93-Z94", "r1a"
+    ) == hlogic.HaploColor.GREEN
 
 
 # ---------------------------------------------------------------------
@@ -394,8 +431,8 @@ def test_color_logic_deeper_nevgen_snp_still_found_in_semargl_chain_is_green(con
     цепочки, что и Semargl — раз терминальный SNP NevGen встречается где-то
     в строке Semargl, это согласованная предикция (зелёный), а не жёлтый."""
     semargl = "I2a1b3a1a1c CTS10228 > Y3120 > PH908"
-    assert hlogic.calculate_haplo_color("I-PH908", semargl) == hlogic.HaploColor.GREEN
-    assert hlogic.calculate_haplo_color("I-CTS10228", semargl) == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-PH908", semargl, "I2a") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-CTS10228", semargl, "I2a") == hlogic.HaploColor.GREEN
 
 
 def test_final_haplogroup_reserved_field_present_and_hidden(conn):
