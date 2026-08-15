@@ -22,7 +22,8 @@ EDITABLE_FIELDS = {
 }
 
 # Резервные поля — заложены в БД, но НЕ выводятся в UI этой вкладки.
-RESERVED_FIELDS = {"date_prediction", "analyst", "review_status", "date_issued"}
+# final_haplogroup — задел под будущую интеграцию с генерацией отчётов.
+RESERVED_FIELDS = {"date_prediction", "analyst", "review_status", "date_issued", "final_haplogroup"}
 
 ALL_WRITABLE_FIELDS = EDITABLE_FIELDS | RESERVED_FIELDS
 

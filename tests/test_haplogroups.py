@@ -3,6 +3,7 @@
 логика NevGen/Semargl, фильтры, экспорт Excel/CSV.
 """
 import os
+import sqlite3
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -303,3 +304,107 @@ def test_existing_order_and_event_flow_still_works(conn):
     repo.record_event(conn, test_id, "received", operator="оператор")
     events = repo.list_events_for_test(conn, test_id)
     assert any(e["event_type"] == "received" for e in events)
+
+
+# ---------------------------------------------------------------------
+# Доп. проверки по итогам ревью
+# ---------------------------------------------------------------------
+
+def test_db_level_unique_constraint_on_test_number(conn):
+    """UNIQUE(test_number) в схеме — вторая запись на тот же тест не проходит
+    даже в обход upsert_haplogroup(), напрямую через SQL."""
+    gns = _make_test(conn)
+    ts = repo.now_iso()
+    conn.execute(
+        "INSERT INTO haplogroups (test_number, created_at, updated_at) VALUES (?, ?, ?)",
+        (gns, ts, ts),
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO haplogroups (test_number, created_at, updated_at) VALUES (?, ?, ?)",
+            (gns, ts, ts),
+        )
+
+
+def test_db_level_fk_blocks_deleting_referenced_test(conn):
+    """Тест с записью гаплогруппы нельзя удалить из tests напрямую — FK +
+    PRAGMA foreign_keys=ON останавливают это на уровне БД (приложение и так
+    никогда не удаляет тесты физически, только архивирует)."""
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    test_id = conn.execute("SELECT test_id FROM tests WHERE gns_number=?", (gns,)).fetchone()["test_id"]
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("DELETE FROM tests WHERE test_id = ?", (test_id,))
+
+
+def test_snp_search_matches_substring_mid_string(conn):
+    """Поиск по SNP — contains, а не точное совпадение (напр. 'PH908' находится
+    и внутри 'I-PH908', и внутри 'I2a1...CTS10228 > Y3120 > PH908')."""
+    gns1 = _make_test(conn, customer_name="Носитель PH908")
+    gns2 = _make_test(conn, customer_name="Носитель YP417")
+    hrepo.upsert_haplogroup(conn, gns1, {"snp_issued": "I-PH908"})
+    hrepo.upsert_haplogroup(conn, gns2, {"snp_issued": "R-YP417"})
+
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, snp_issued="PH908")} == {gns1}
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, snp_issued="YP417")} == {gns2}
+    # частичный фрагмент без начала/конца строки тоже должен находиться
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, snp_issued="H908")} == {gns1}
+
+
+def test_project_rename_keeps_haplogroup_linkage_via_id_not_name(conn):
+    """Связь идёт по project_id, а не по названию — переименование проекта
+    не рвёт привязку существующих записей."""
+    bashkir = conn.execute("SELECT id FROM projects WHERE name = 'Башкирский проект'").fetchone()["id"]
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"project_id": bashkir})
+
+    prepo.rename_project(conn, bashkir, "Башкирский ДНК-проект")
+
+    row = hrepo.list_haplogroups(conn, test_number=gns)[0]
+    assert row["project_id"] == bashkir
+    assert prepo.get_project_path(conn, row["project_id"]) == "Этнопроекты › Башкирский ДНК-проект"
+
+
+def test_archiving_project_does_not_hide_or_orphan_existing_records(conn):
+    """Архивирование проекта не удаляет и не скрывает уже привязанные к нему
+    записи гаплогрупп — только помечает сам проект is_archived=1 и убирает
+    его из списка для выбора в новых записях."""
+    tatar = conn.execute("SELECT id FROM projects WHERE name = 'Татарский проект'").fetchone()["id"]
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"project_id": tatar})
+
+    prepo.archive_project(conn, tatar)
+
+    # запись гаплогруппы по-прежнему на месте и привязана к проекту
+    row = hrepo.list_haplogroups(conn, test_number=gns)[0]
+    assert row["project_id"] == tatar
+    row2 = conn.execute("SELECT is_archived FROM projects WHERE id=?", (tatar,)).fetchone()
+    assert row2["is_archived"] == 1
+
+    # но архивный проект больше не предлагается для выбора в новых записях
+    active_ids = {pid for pid, _n, _d, _a in prepo.flatten_tree(prepo.build_tree(conn, include_archived=False))}
+    assert tatar not in active_ids
+    # хотя в полном дереве (для справочника/фильтра) он всё ещё виден
+    all_ids = {pid for pid, _n, _d, _a in prepo.flatten_tree(prepo.build_tree(conn, include_archived=True))}
+    assert tatar in all_ids
+
+
+def test_color_logic_deeper_nevgen_snp_still_found_in_semargl_chain_is_green(conn):
+    """Ревью-кейс: NevGen называет более глубокий/более неглубокий SNP той же
+    цепочки, что и Semargl — раз терминальный SNP NevGen встречается где-то
+    в строке Semargl, это согласованная предикция (зелёный), а не жёлтый."""
+    semargl = "I2a1b3a1a1c CTS10228 > Y3120 > PH908"
+    assert hlogic.calculate_haplo_color("I-PH908", semargl) == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-CTS10228", semargl) == hlogic.HaploColor.GREEN
+
+
+def test_final_haplogroup_reserved_field_present_and_hidden(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(haplogroups)").fetchall()}
+    assert "final_haplogroup" in cols
+    assert "final_haplogroup" in hrepo.RESERVED_FIELDS
+    assert "final_haplogroup" not in hrepo.EDITABLE_FIELDS
+
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"final_haplogroup": "I-PH908"})
+    row = conn.execute("SELECT final_haplogroup FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["final_haplogroup"] == "I-PH908"

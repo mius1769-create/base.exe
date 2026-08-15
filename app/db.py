@@ -255,7 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects(parent_id);
 -- редактируется в этой вкладке напрямую, см. haplogroups_repo.py).
 --
 -- Резервные поля (заложены в БД, НЕ выводятся в UI вкладки, раздел ТЗ):
---   date_prediction, analyst, review_status, date_issued.
+--   date_prediction, analyst, review_status, date_issued, final_haplogroup.
 CREATE TABLE IF NOT EXISTS haplogroups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     test_number TEXT NOT NULL REFERENCES tests(gns_number),
@@ -271,6 +271,7 @@ CREATE TABLE IF NOT EXISTS haplogroups (
     analyst TEXT,
     review_status TEXT,
     date_issued TEXT,
+    final_haplogroup TEXT,           -- задел под будущую интеграцию с отчётами; не выводится в UI
     is_archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
