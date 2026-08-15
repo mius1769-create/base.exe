@@ -206,6 +206,15 @@ class HaplogroupsTabWidget(QWidget):
         self.table.setSortingEnabled(True)
         self.count_label.setText(f"Записей: {len(rows)}")
 
+        # Пересборка содержимого таблицы сразу после закрытия модального
+        # диалога добавления/редактирования — тот же класс проблемы, что и
+        # в internal_tab.py (InternalCardWidget.show_test): пересчёт
+        # geometry/repaint в некоторых рендер-бэкендах может не произойти
+        # немедленно без явного толчка, из-за чего список визуально выглядит
+        # неизменившимся, пока не переключить вкладку. Форсируем перерисовку.
+        self.table.viewport().update()
+        self.table.update()
+
     def _current_export_rows(self) -> list[dict]:
         """Данные строк в ТЕКУЩЕМ порядке отображения таблицы (с учётом
         сортировки кликом по заголовку), а не в порядке исходного запроса."""

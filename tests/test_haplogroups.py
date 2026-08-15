@@ -361,6 +361,101 @@ def test_edit_dialog_y_dna_lock_updates_when_switching_selected_test(conn):
 
 
 # ---------------------------------------------------------------------
+# Обновление списка после добавления записи (без переключения вкладок)
+# ---------------------------------------------------------------------
+
+def test_test_picker_is_not_cached_between_dialog_instances(conn):
+    """list_test_numbers_for_picker() читает БД заново при каждом открытии
+    диалога — тест, созданный ПОСЛЕ открытия первого диалога, обязан
+    появиться в комбобоксе следующего, свежесозданного диалога."""
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    dlg1 = HaplogroupEditDialog(conn, test_number=None)
+    try:
+        count_before = dlg1.test_combo.count()
+    finally:
+        dlg1.deleteLater()
+
+    gns_new = _make_test(conn, customer_name="Только что созданный")
+
+    dlg2 = HaplogroupEditDialog(conn, test_number=None)
+    try:
+        assert dlg2.test_combo.count() == count_before + 1
+        assert dlg2.test_combo.findData(gns_new) >= 0
+    finally:
+        dlg2.deleteLater()
+
+
+def test_full_add_record_flow_refreshes_table_without_tab_switch(conn):
+    """Полный сценарий «Добавить запись» через РЕАЛЬНЫЙ модальный цикл
+    QDialog.exec() (не в обход него) — воспроизводит ровно то, что
+    описывалось как баг: нужно ли переключение вкладок, чтобы таблица
+    показала новую запись. Драйвим модальный цикл через QTimer.singleShot,
+    как и полагается для тестирования модальных Qt-диалогов, вместо
+    реального клика — но иначе код не отличается от боевого пути
+    HaplogroupsTabWidget._open_edit_dialog()."""
+    _qapp()
+    from PySide6.QtCore import QTimer
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+    from app.haplogroups_tab import HaplogroupsTabWidget
+
+    gns = _make_test(conn, customer_name="Новый Клиент")
+
+    tab = HaplogroupsTabWidget(conn, None)
+    try:
+        assert tab.table.rowCount() == 0
+
+        dlg = HaplogroupEditDialog(conn, tab, test_number=None)
+        idx = dlg.test_combo.findData(gns)
+        assert idx >= 0
+        dlg.test_combo.setCurrentIndex(idx)
+        dlg.y_dna_edit.setText("R1a")
+
+        QTimer.singleShot(0, dlg._on_save)
+        accepted = dlg.exec()
+        assert accepted
+
+        # ровно то же самое, что и в HaplogroupsTabWidget._open_edit_dialog()
+        tab.refresh()
+
+        assert tab.table.rowCount() == 1, (
+            "запись не отобразилась в таблице без переключения вкладок"
+        )
+        assert tab.table.item(0, 0).text() == gns
+    finally:
+        tab.deleteLater()
+
+
+def test_full_edit_record_flow_refreshes_table_without_tab_switch(conn):
+    """Тот же сценарий, но для редактирования уже существующей записи
+    (двойной клик по строке) — изменение должно отразиться в таблице сразу."""
+    _qapp()
+    from PySide6.QtCore import QTimer
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+    from app.haplogroups_tab import HaplogroupsTabWidget
+
+    gns = _make_test(conn, customer_name="Клиент Ред")
+    hrepo.upsert_haplogroup(conn, gns, {"comment": "исходный комментарий"})
+
+    tab = HaplogroupsTabWidget(conn, None)
+    try:
+        assert tab.table.item(0, 5).text() == ""  # nevgen пуст изначально
+
+        dlg = HaplogroupEditDialog(conn, tab, test_number=gns)
+        dlg.nevgen_edit.setText("R-L1029")
+        dlg.semargl_edit.setText("R-Z93")
+
+        QTimer.singleShot(0, dlg._on_save)
+        accepted = dlg.exec()
+        assert accepted
+
+        tab.refresh()
+
+        assert tab.table.item(0, 5).text() == "R-L1029"
+        assert tab.table.item(0, 0).background().color().name() == "#e9f8ef"  # GREEN
+    finally:
+        tab.deleteLater()
 # Фильтры списка
 # ---------------------------------------------------------------------
 
