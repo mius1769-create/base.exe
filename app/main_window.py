@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from . import settings as st
 from .client_tab import ClientTabWidget
 from .internal_tab import InternalTabWidget
+from .haplogroups_tab import HaplogroupsTabWidget
 from .new_order_dialog import NewOrderDialog
 from .settings_dialog import SettingsDialog
 from .backup_dialog import BackupDialog
@@ -92,8 +93,10 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.client_tab = ClientTabWidget(self.conn, self)
         self.internal_tab = InternalTabWidget(self.conn, self)
+        self.haplogroups_tab = HaplogroupsTabWidget(self.conn, self)
         self.tabs.addTab(self.client_tab, "Клиентская")
         self.tabs.addTab(self.internal_tab, "Внутренняя работа")
+        self.tabs.addTab(self.haplogroups_tab, "Гаплогруппы")
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         container = QWidget()
@@ -130,12 +133,15 @@ class MainWindow(QMainWindow):
         # вкладке должны быть видны, если тут же переключиться на клиентскую)
         if index == 0:
             self.client_tab.refresh()
-        else:
+        elif index == 1:
             self.internal_tab.refresh()
+        else:
+            self.haplogroups_tab.refresh()
 
     def refresh_all(self) -> None:
         self.client_tab.refresh()
         self.internal_tab.refresh()
+        self.haplogroups_tab.refresh()
 
     def on_event_saved(self, test_id: int) -> None:
         """
