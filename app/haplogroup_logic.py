@@ -1,37 +1,26 @@
 """
 GENOPOISK CRM — вкладка «Гаплогруппы»: чистая логика сравнения предикций.
 
-Не зависит от GUI/БД — сравнивает предикции NevGen и Semargl (плюс
-подтверждённое поле Y-ДНК как независимый якорь) и определяет цветовую
-индикацию строки таблицы:
+Не зависит от GUI/БД. Цветовая индикация в CRM НЕ строит филогению и НЕ
+пытается определить родство/вложенность субкладов (для этого нет доступа
+к YFull/ISOGG, и это отдельная аналитическая работа оператора) — её
+единственная задача: быстро подсветить возможную ошибку загрузки
+STR-профиля, ошибку ввода или ситуацию, когда разные предикторы относят
+образец к разным КРУПНЫМ гаплогруппам.
 
-  GREEN  — терминальный SNP из предикции NevGen встречается в строке
-           Semargl (предикции согласованы на уровне конкретного SNP).
-  YELLOW — терминальный SNP не найден в Semargl, но корневая (базовая)
-           гаплогруппа поля Y-ДНК совпадает с корневой гаплогруппой
-           Semargl (разница в глубине ветви, не в самой ветви).
-  RED    — терминальный SNP не найден, и корневая гаплогруппа Y-ДНК не
-           совпадает с корневой гаплогруппой Semargl (разные ветви,
-           нужна проверка).
-  NONE   — недостаточно данных для сравнения (NevGen, Semargl или
-           Y-ДНК не заполнены).
+  GREEN — NevGen и Semargl относятся к одной крупной гаплогруппе (совпадает
+          ведущая буква корня первого токена, напр. "R-L1029" и "R-Z93" —
+          оба "R"; "Z93" и "Z2103" при этом НЕ сравниваются между собой —
+          является ли один субклад предком другого, CRM не определяет).
+  RED   — NevGen и Semargl относятся к разным крупным гаплогруппам.
+  NONE  — хотя бы одна из предикций (NevGen или Semargl) не заполнена.
 
-ВАЖНО: корень (major-гаплогруппа) для сравнения берётся из поля Y-ДНК —
-подтверждённого значения, а НЕ путём сравнения первого токена самих
-предикций NevGen/Semargl друг с другом. Прямое сравнение root(NevGen) и
-root(Semargl) даёт ложные совпадения: разные записи используют разную
-глубину нотации (напр. "R-M458" против "R1a-M458"), из-за чего два
-предиктора могут случайно разделить один и тот же терсовый префикс,
-указывая на совершенно разные субклады. Y-ДНК — независимый якорь, не
-подверженный этой проблеме нотации.
+Сравнение НЕ анализирует терминальные SNP, их взаимное вложение и не
+использует поле Y-ДНК — только ведущую букву корневой гаплогруппы первого
+токена каждой предикции.
 
 Формат предикций — цепочка маркеров через дефис/">"/пробел, напр.
-"R1a-Z93-Z94" или "R1a > Z93 > Z94": первый токен — корневая гаплогруппа,
-последний — терминальный (самый глубокий) SNP.
-
-Поиск терминального SNP в строке Semargl — по границе слова (\\b), а не
-сырой substring: иначе короткое имя SNP (напр. "M17") ложно совпадало бы
-внутри более длинного имени другого SNP (напр. "M170").
+"R1a-Z93-Z94" или "R1a > Z93 > Z94": первый токен — корневая гаплогруппа.
 """
 from __future__ import annotations
 
@@ -45,45 +34,26 @@ _LEADING_LETTERS_RE = re.compile(r"[A-Za-z]+")
 
 class HaploColor(str, Enum):
     GREEN = "green"
-    YELLOW = "yellow"
     RED = "red"
     NONE = "none"
 
 
-def _tokens(value: str) -> list[str]:
-    return [t for t in _TOKEN_SPLIT_RE.split(value.strip()) if t]
-
-
-def haplo_terminal_snp(value: str) -> str:
-    """Последний токен цепочки — терминальный (самый глубокий) SNP."""
-    toks = _tokens(value)
-    return toks[-1] if toks else ""
-
-
 def haplo_major_letter(value: str) -> str:
-    """Ведущая буквенная часть корневой гаплогруппы первого токена цепочки,
-    напр. 'R1a' -> 'R', 'R-M458' -> 'R', 'I2a' -> 'I', 'I-CTS10228' -> 'I'."""
-    toks = _tokens(value)
-    if not toks:
-        return ""
-    m = _LEADING_LETTERS_RE.match(toks[0])
+    """Ведущая буквенная часть корневой (крупной) гаплогруппы первого
+    токена цепочки, напр. 'R1a-L1029' -> 'R', 'R-Z93' -> 'R',
+    'I-CTS10228' -> 'I', 'N-Y6503' -> 'N'."""
+    first_token = next((t for t in _TOKEN_SPLIT_RE.split(value.strip()) if t), "")
+    m = _LEADING_LETTERS_RE.match(first_token)
     return m.group(0) if m else ""
 
 
-def calculate_haplo_color(
-    nevgen: Optional[str], semargl: Optional[str], y_dna: Optional[str]
-) -> HaploColor:
+def calculate_haplo_color(nevgen: Optional[str], semargl: Optional[str]) -> HaploColor:
     nevgen = (nevgen or "").strip()
     semargl = (semargl or "").strip()
-    y_dna = (y_dna or "").strip()
-    if not nevgen or not semargl or not y_dna:
+    if not nevgen or not semargl:
         return HaploColor.NONE
 
-    snp = haplo_terminal_snp(nevgen)
-    if snp and re.search(rf"\b{re.escape(snp)}\b", semargl, re.IGNORECASE):
+    if haplo_major_letter(nevgen).lower() == haplo_major_letter(semargl).lower():
         return HaploColor.GREEN
-
-    if haplo_major_letter(y_dna).lower() == haplo_major_letter(semargl).lower():
-        return HaploColor.YELLOW
 
     return HaploColor.RED

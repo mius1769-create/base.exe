@@ -125,6 +125,22 @@ class HaplogroupEditDialog(QDialog):
         tn = self._current_test_number()
         row = hrepo.get_test_by_number(self.conn, tn) if tn else None
         self.full_name_label.setText(row["customer_name"] if row else "—")
+        self._apply_y_dna_lock(row["test_type"] if row else None)
+
+    def _apply_y_dna_lock(self, test_type: Optional[str]) -> None:
+        """Y-ДНК не применимо для тестов мтДНК (тип теста берётся из
+        tests.test_type, а не из текстового названия продукта) — поле
+        блокируется для ввода и визуально очищается. Реальная гарантия
+        того, что в БД для такого теста y_dna не сохранится, — на уровне
+        haplogroups_repo.upsert_haplogroup(); это только UI-отражение той
+        же политики."""
+        is_mtdna = test_type in hrepo.MTDNA_TEST_TYPES
+        self.y_dna_edit.setEnabled(not is_mtdna)
+        if is_mtdna:
+            self.y_dna_edit.clear()
+            self.y_dna_edit.setPlaceholderText("Не применимо")
+        else:
+            self.y_dna_edit.setPlaceholderText("")
 
     def _load_existing(self, test_number: str) -> None:
         row = self.conn.execute(
@@ -141,6 +157,11 @@ class HaplogroupEditDialog(QDialog):
         self.semargl_edit.setText(row["semargl_prediction"] or "")
         self.snp_edit.setText(row["snp_issued"] or "")
         self.comment_edit.setPlainText(row["comment"] or "")
+        # переприменяем блокировку Y-ДНК ПОСЛЕ подстановки полей — если в
+        # БД у мтДНК-теста уже случайно оказалось значение y_dna (данные до
+        # этого исправления), поле визуально очищается сразу при открытии,
+        # а не только после следующего сохранения
+        self._on_test_changed()
 
     def _on_save(self) -> None:
         test_number = self._current_test_number()

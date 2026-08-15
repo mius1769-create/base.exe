@@ -27,10 +27,14 @@ RESERVED_FIELDS = {"date_prediction", "analyst", "review_status", "date_issued",
 
 ALL_WRITABLE_FIELDS = EDITABLE_FIELDS | RESERVED_FIELDS
 
+# Типы тестов (tests.test_type, коды из test_types/product_catalog), для
+# которых поле Y-ДНК не применимо (мтДНК не даёт Y-хромосомную гаплогруппу).
+MTDNA_TEST_TYPES = {"MTDNA", "MITOGENOME"}
+
 
 def get_test_by_number(conn: sqlite3.Connection, test_number: str) -> Optional[sqlite3.Row]:
     return conn.execute(
-        """SELECT t.test_id, t.gns_number, o.customer_name
+        """SELECT t.test_id, t.gns_number, t.test_type, o.customer_name
            FROM tests t JOIN orders o ON o.order_id = t.order_id
            WHERE t.gns_number = ?""",
         (test_number,),
@@ -44,7 +48,14 @@ def upsert_haplogroup(
     *,
     user_name: Optional[str] = None,
 ) -> int:
-    """Создаёт или обновляет запись гаплогруппы для указанного номера теста."""
+    """Создаёт или обновляет запись гаплогруппы для указанного номера теста.
+
+    Для тестов мтДНК (MTDNA_TEST_TYPES) поле y_dna принудительно
+    приводится к NULL при КАЖДОМ сохранении — независимо от того, что
+    передал вызывающий код (UI дополнительно блокирует само поле для
+    ввода, но это финальная защита на уровне репозитория, которая
+    заодно самостоятельно очищает уже накопленные некорректные значения
+    при первом же следующем сохранении записи)."""
     unknown = set(fields) - ALL_WRITABLE_FIELDS
     if unknown:
         raise ValueError(f"Недопустимые поля для записи гаплогруппы: {unknown}")
@@ -55,6 +66,9 @@ def upsert_haplogroup(
         if test_row is None:
             raise ValueError(f"Тест с номером {test_number!r} не найден")
         full_name = test_row["customer_name"]
+
+        if test_row["test_type"] in MTDNA_TEST_TYPES:
+            fields = {**fields, "y_dna": None}
 
         existing = conn.execute(
             "SELECT * FROM haplogroups WHERE test_number = ?", (test_number,)

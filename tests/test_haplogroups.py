@@ -34,6 +34,13 @@ def _make_test(conn, customer_name="Тестовый Клиент", **kwargs):
     return gns
 
 
+def _make_test_of_type(conn, test_type_code, customer_name="Тестовый Клиент"):
+    order = repo.NewOrderInput(customer_name=customer_name, test_type_codes=[test_type_code])
+    order_id, test_ids = repo.create_order_with_tests(conn, order)
+    gns = conn.execute("SELECT gns_number FROM tests WHERE test_id = ?", (test_ids[0],)).fetchone()[0]
+    return gns
+
+
 # ---------------------------------------------------------------------
 # Схема БД — только добавление, ничего не сломано у существующих таблиц
 # ---------------------------------------------------------------------
@@ -134,84 +141,59 @@ def test_build_project_paths_matches_single_lookup_for_every_project(conn):
 
 
 # ---------------------------------------------------------------------
-# Цветовая логика NevGen vs Semargl (якорь — подтверждённое поле Y-ДНК,
-# а не сравнение root(NevGen) с root(Semargl) друг с другом)
+# Цветовая логика NevGen vs Semargl (только GREEN/RED/NONE — CRM не
+# строит филогению и не анализирует терминальные SNP/вложенность
+# субкладов, только совпадение КРУПНОЙ гаплогруппы, раздел ТЗ)
 # ---------------------------------------------------------------------
 
-def test_color_green_when_snp_found_in_semargl():
-    assert hlogic.calculate_haplo_color(
-        "R1a-Z93-Z94", "R1a-Z93-Z94-YP1337", "R1a"
-    ) == hlogic.HaploColor.GREEN
+def test_color_green_when_major_haplogroup_matches():
+    """Примеры из ТЗ: одна крупная гаплогруппа, независимо от конкретного
+    субклада/глубины нотации — GREEN. Отношения между Z93/Z2103 и т.п.
+    CRM сознательно не анализирует."""
+    assert hlogic.calculate_haplo_color("R-L1029", "R-Z93") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-CTS10228", "I-Y3120") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("N-L1026", "N-Y6503") == hlogic.HaploColor.GREEN
 
 
-def test_color_green_examples_from_review():
-    assert hlogic.calculate_haplo_color(
-        "I-CTS10228", "I > CTS10228 > Y3120 > PH908", "I2a"
-    ) == hlogic.HaploColor.GREEN
-    assert hlogic.calculate_haplo_color(
-        "R-M458", "R1a > M458 > YP417", "R1a"
-    ) == hlogic.HaploColor.GREEN
+def test_color_red_when_major_haplogroup_differs():
+    """Примеры из ТЗ: разные крупные гаплогруппы — RED, независимо от
+    того, насколько глубоко совпадают конкретные SNP-имена."""
+    assert hlogic.calculate_haplo_color("R-L1029", "I-CTS10228") == hlogic.HaploColor.RED
+    assert hlogic.calculate_haplo_color("N-L1026", "R-Z93") == hlogic.HaploColor.RED
+    assert hlogic.calculate_haplo_color("J-M267", "G-L497") == hlogic.HaploColor.RED
 
 
-def test_color_yellow_when_snp_missing_but_y_dna_root_matches_semargl():
-    """Ревью-кейс: Y-ДНК=R1a, NevGen=R-Z280, Semargl=R-M458 -> SNP не найден,
-    но корень Y-ДНК совпадает с корнем Semargl -> YELLOW."""
-    assert hlogic.calculate_haplo_color(
-        "R-Z280", "R-M458", "R1a"
-    ) == hlogic.HaploColor.YELLOW
+def test_color_red_for_former_yellow_bug_case():
+    """Ключевой ревью-кейс: раньше R-L1029 vs R-Z93 ошибочно давал YELLOW
+    (сравнение только по первой букве при частичном пересечении SNP).
+    Новая логика тоже сравнивает только ведущую букву — но раз YELLOW как
+    состояние убран целиком, любые две разные предикции с одной и той же
+    крупной гаплогруппой теперь GREEN, а не "подозрительный жёлтый"."""
+    assert hlogic.calculate_haplo_color("R-L1029", "R-Z93") == hlogic.HaploColor.GREEN
 
 
-def test_color_red_when_snp_missing_and_y_dna_root_differs_from_semargl():
-    """Ревью-кейс: Y-ДНК=I2a, Semargl указывает ветвь R1a -> корни не
-    совпадают -> RED, независимо от того, что написано в NevGen."""
-    assert hlogic.calculate_haplo_color(
-        "I-M223", "R1a > M405 > L459", "I2a"
-    ) == hlogic.HaploColor.RED
-
-
-def test_color_nevgen_own_root_is_never_compared_directly_to_semargl():
-    """Бывший баг (пример из ревью): NevGen 'R-M458' и Semargl 'R > Z280 >
-    CTS1211' имеют один и тот же терсовый корневой токен 'R', и старая
-    логика (root(NevGen) == root(Semargl)) давала здесь YELLOW — хотя это
-    разные ветви. Новая логика вообще не сравнивает root(NevGen) с
-    root(Semargl) друг с другом: корень берётся только из подтверждённого
-    Y-ДНК. Если Y-ДНК указывает на другую ветвь ('I2a'), результат — RED,
-    несмотря на то, что NevGen и Semargl совпадали бы по старому критерию."""
-    assert hlogic.calculate_haplo_color(
-        "R-M458", "R > Z280 > CTS1211", "I2a"
-    ) == hlogic.HaploColor.RED
-
-
-def test_color_none_when_any_field_missing():
-    assert hlogic.calculate_haplo_color("", "R1a-Z93", "R1a") == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color("R1a-Z93", None, "R1a") == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color("R1a-Z93", "R1a-Z93", "") == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color("R1a-Z93", "R1a-Z93", None) == hlogic.HaploColor.NONE
-    assert hlogic.calculate_haplo_color(None, None, None) == hlogic.HaploColor.NONE
+def test_color_none_when_either_prediction_missing():
+    assert hlogic.calculate_haplo_color("", "R-Z93") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color("R-Z93", None) == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color(None, "R-Z93") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color(None, None) == hlogic.HaploColor.NONE
 
 
 def test_color_green_case_insensitive():
-    assert hlogic.calculate_haplo_color(
-        "r1a-z94", "R1A-Z93-Z94", "r1a"
-    ) == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("r-l1029", "R-Z93") == hlogic.HaploColor.GREEN
 
 
-def test_color_snp_match_is_anchored_not_raw_substring():
-    """Найденный при финальном ревью баг: сырой substring-поиск терминального
-    SNP ('m17' in 'i-m170') ложно совпадал с более длинным именем другого
-    SNP. 'M17' не должен считаться найденным внутри 'M170'."""
-    assert hlogic.calculate_haplo_color(
-        "R1a-M17", "I-M170", "R1a"
-    ) != hlogic.HaploColor.GREEN
-    # при этом root(Y-ДНК)="R" не совпадает с root(Semargl)="I" -> RED
-    assert hlogic.calculate_haplo_color(
-        "R1a-M17", "I-M170", "R1a"
-    ) == hlogic.HaploColor.RED
-    # контрольная проверка: настоящее совпадение (SNP как отдельное слово)
-    # по-прежнему находится
-    assert hlogic.calculate_haplo_color(
-        "R1a-M17", "R1a-M17-YP417", "R1a"
-    ) == hlogic.HaploColor.GREEN
+def test_color_does_not_use_y_dna_field():
+    """Y-ДНК больше не участвует в определении цвета вообще — сигнатура
+    calculate_haplo_color принимает только nevgen и semargl."""
+    import inspect
+    params = list(inspect.signature(hlogic.calculate_haplo_color).parameters)
+    assert params == ["nevgen", "semargl"]
+
+
+def test_color_logic_has_no_yellow_state():
+    assert not hasattr(hlogic.HaploColor, "YELLOW")
+    assert {c.value for c in hlogic.HaploColor} == {"green", "red", "none"}
 
 
 # ---------------------------------------------------------------------
@@ -260,6 +242,122 @@ def test_reserved_fields_can_be_written_but_stay_hidden(conn):
     row = conn.execute("SELECT * FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
     assert row["analyst"] == "Петров"
     assert row["review_status"] == "проверено"
+
+
+# ---------------------------------------------------------------------
+# Y-ДНК недоступно для тестов мтДНК (тип теста — tests.test_type)
+# ---------------------------------------------------------------------
+
+def test_get_test_by_number_returns_test_type(conn):
+    gns = _make_test_of_type(conn, "MTDNA")
+    row = hrepo.get_test_by_number(conn, gns)
+    assert row["test_type"] == "MTDNA"
+
+
+@pytest.mark.parametrize("test_type_code", ["MTDNA", "MITOGENOME"])
+def test_upsert_forces_y_dna_null_for_mtdna_test_types(conn, test_type_code):
+    gns = _make_test_of_type(conn, test_type_code)
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a", "comment": "попытка ввести Y-ДНК"})
+    row = conn.execute("SELECT y_dna, comment FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["y_dna"] is None
+    assert row["comment"] == "попытка ввести Y-ДНК"  # остальные поля сохраняются как обычно
+
+
+def test_upsert_allows_y_dna_for_non_mtdna_test_types(conn):
+    gns = _make_test_of_type(conn, "STRELKA")
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    row = conn.execute("SELECT y_dna FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["y_dna"] == "R1a"
+
+
+def test_upsert_self_heals_stale_y_dna_on_mtdna_test_even_without_touching_field(conn):
+    """Если в БД уже есть некорректное значение y_dna у мтДНК-теста (данные
+    до этого исправления), следующее ЛЮБОЕ сохранение записи (даже не
+    трогающее y_dna явно) обязано его очистить."""
+    gns = _make_test_of_type(conn, "MITOGENOME")
+    ts = repo.now_iso()
+    conn.execute(
+        "INSERT INTO haplogroups (test_number, full_name, y_dna, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (gns, "Тестовый Клиент", "R1a-Z93", ts, ts),
+    )
+    hrepo.upsert_haplogroup(conn, gns, {"comment": "правка не связана с Y-ДНК"})
+    row = conn.execute("SELECT y_dna, comment FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["y_dna"] is None
+    assert row["comment"] == "правка не связана с Y-ДНК"
+
+
+def test_edit_dialog_disables_y_dna_for_mtdna_test_types(conn):
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    for code in ("MTDNA", "MITOGENOME"):
+        gns = _make_test_of_type(conn, code, customer_name=f"Клиент {code}")
+        dlg = HaplogroupEditDialog(conn, test_number=gns)
+        try:
+            assert dlg.y_dna_edit.isEnabled() is False, code
+            assert dlg.y_dna_edit.placeholderText() == "Не применимо"
+        finally:
+            dlg.deleteLater()
+
+
+def test_edit_dialog_keeps_y_dna_editable_for_non_mtdna_test_types(conn):
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    for code in ("Y50", "STRELKA"):
+        gns = _make_test_of_type(conn, code, customer_name=f"Клиент {code}")
+        dlg = HaplogroupEditDialog(conn, test_number=gns)
+        try:
+            assert dlg.y_dna_edit.isEnabled() is True, code
+        finally:
+            dlg.deleteLater()
+
+
+def test_edit_dialog_clears_stale_y_dna_display_on_load_for_mtdna_test(conn):
+    """Если в БД уже случайно оказалось значение y_dna у мтДНК-теста, поле
+    визуально очищается сразу при открытии диалога, а не только после
+    следующего нажатия «Сохранить»."""
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    gns = _make_test_of_type(conn, "MTDNA")
+    ts = repo.now_iso()
+    conn.execute(
+        "INSERT INTO haplogroups (test_number, full_name, y_dna, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (gns, "Тестовый Клиент", "R1a-Z93", ts, ts),
+    )
+    dlg = HaplogroupEditDialog(conn, test_number=gns)
+    try:
+        assert dlg.y_dna_edit.text() == ""
+        assert dlg.y_dna_edit.isEnabled() is False
+    finally:
+        dlg.deleteLater()
+
+
+def test_edit_dialog_y_dna_lock_updates_when_switching_selected_test(conn):
+    """В режиме добавления новой записи (тест не заблокирован) переключение
+    на другой тест в комбобоксе должно живо обновлять блокировку Y-ДНК."""
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    gns_mtdna = _make_test_of_type(conn, "MTDNA", customer_name="Клиент мтДНК")
+    gns_y = _make_test_of_type(conn, "Y50", customer_name="Клиент Y")
+
+    dlg = HaplogroupEditDialog(conn, test_number=None)
+    try:
+        idx_mtdna = dlg.test_combo.findData(gns_mtdna)
+        assert idx_mtdna >= 0
+        dlg.test_combo.setCurrentIndex(idx_mtdna)
+        assert dlg.y_dna_edit.isEnabled() is False
+
+        idx_y = dlg.test_combo.findData(gns_y)
+        assert idx_y >= 0
+        dlg.test_combo.setCurrentIndex(idx_y)
+        assert dlg.y_dna_edit.isEnabled() is True
+    finally:
+        dlg.deleteLater()
 
 
 # ---------------------------------------------------------------------
@@ -455,13 +553,12 @@ def test_archiving_project_does_not_hide_or_orphan_existing_records(conn):
     assert tatar in all_ids
 
 
-def test_color_logic_deeper_nevgen_snp_still_found_in_semargl_chain_is_green(conn):
-    """Ревью-кейс: NevGen называет более глубокий/более неглубокий SNP той же
-    цепочки, что и Semargl — раз терминальный SNP NevGen встречается где-то
-    в строке Semargl, это согласованная предикция (зелёный), а не жёлтый."""
+def test_color_logic_same_major_haplogroup_is_green_regardless_of_depth(conn):
+    """Актуальная версия прежнего ревью-кейса: разная глубина нотации между
+    NevGen и Semargl не имеет значения, пока совпадает крупная гаплогруппа."""
     semargl = "I2a1b3a1a1c CTS10228 > Y3120 > PH908"
-    assert hlogic.calculate_haplo_color("I-PH908", semargl, "I2a") == hlogic.HaploColor.GREEN
-    assert hlogic.calculate_haplo_color("I-CTS10228", semargl, "I2a") == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-PH908", semargl) == hlogic.HaploColor.GREEN
+    assert hlogic.calculate_haplo_color("I-CTS10228", semargl) == hlogic.HaploColor.GREEN
 
 
 def test_final_haplogroup_reserved_field_present_and_hidden(conn):

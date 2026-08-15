@@ -38,7 +38,6 @@ COLUMNS = [
 # Согласованность NevGen/Semargl -> цвет строки (раздел ТЗ).
 _ROW_BG = {
     hlogic.HaploColor.GREEN: "#e9f8ef",
-    hlogic.HaploColor.YELLOW: "#fff6df",
     hlogic.HaploColor.RED: "#fee2e2",
 }
 
@@ -170,7 +169,7 @@ class HaplogroupsTabWidget(QWidget):
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             color = hlogic.calculate_haplo_color(
-                row["nevgen_prediction"], row["semargl_prediction"], row["y_dna"]
+                row["nevgen_prediction"], row["semargl_prediction"]
             )
             project_path = project_paths.get(row["project_id"], "")
             values = {
