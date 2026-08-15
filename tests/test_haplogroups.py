@@ -1,0 +1,305 @@
+"""
+Тесты вкладки №3 «Гаплогруппы»: схема БД, дерево проектов, цветовая
+логика NevGen/Semargl, фильтры, экспорт Excel/CSV.
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import pytest
+
+from app import db as dbmod
+from app import repository as repo
+from app import projects_repo as prepo
+from app import haplogroups_repo as hrepo
+from app import haplogroup_logic as hlogic
+from app import exporter
+
+
+@pytest.fixture()
+def conn(tmp_path):
+    c = dbmod.connect(tmp_path / "test.db")
+    dbmod.init_db(c)
+    yield c
+    c.close()
+
+
+def _make_test(conn, customer_name="Тестовый Клиент", **kwargs):
+    order = repo.NewOrderInput(customer_name=customer_name, test_type_codes=["Y50"], **kwargs)
+    order_id, test_ids = repo.create_order_with_tests(conn, order)
+    gns = conn.execute("SELECT gns_number FROM tests WHERE test_id = ?", (test_ids[0],)).fetchone()[0]
+    return gns
+
+
+# ---------------------------------------------------------------------
+# Схема БД — только добавление, ничего не сломано у существующих таблиц
+# ---------------------------------------------------------------------
+
+def test_existing_tables_untouched(conn):
+    for table in ("orders", "tests", "test_types", "test_events", "audit_log", "settings"):
+        conn.execute(f"SELECT * FROM {table} LIMIT 1")  # не падает
+
+
+def test_projects_and_haplogroups_tables_exist(conn):
+    conn.execute("SELECT * FROM projects LIMIT 1")
+    conn.execute("SELECT * FROM haplogroups LIMIT 1")
+
+
+def test_default_projects_seeded(conn):
+    names = {r["name"] for r in prepo.list_projects(conn)}
+    assert {"Клиенты", "Этнопроекты", "Башкирский проект", "Татарский проект"} <= names
+    ethno = conn.execute("SELECT id FROM projects WHERE name = 'Этнопроекты'").fetchone()["id"]
+    bashkir = conn.execute("SELECT parent_id FROM projects WHERE name = 'Башкирский проект'").fetchone()
+    assert bashkir["parent_id"] == ethno
+
+
+def test_reserved_fields_present_in_schema(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(haplogroups)").fetchall()}
+    for reserved in ("date_prediction", "analyst", "review_status", "date_issued"):
+        assert reserved in cols
+    for visible in ("test_number", "full_name", "project_id", "y_dna", "mt_dna",
+                     "nevgen_prediction", "semargl_prediction", "snp_issued", "comment"):
+        assert visible in cols
+
+
+def test_reserved_fields_not_in_editable_ui_fields():
+    assert hrepo.RESERVED_FIELDS.isdisjoint(hrepo.EDITABLE_FIELDS)
+    assert "review_status" in hrepo.RESERVED_FIELDS
+    assert "analyst" in hrepo.RESERVED_FIELDS
+    assert "date_issued" in hrepo.RESERVED_FIELDS
+    assert "date_prediction" in hrepo.RESERVED_FIELDS
+
+
+# ---------------------------------------------------------------------
+# Дерево проектов
+# ---------------------------------------------------------------------
+
+def test_create_nested_project(conn):
+    root_id = prepo.create_project(conn, "Клиенты B2B")
+    child_id = prepo.create_project(conn, "VIP-клиенты", root_id)
+    tree = prepo.build_tree(conn)
+    node = next(n for n in tree if n["id"] == root_id)
+    assert node["children"][0]["id"] == child_id
+
+
+def test_rename_project(conn):
+    pid = prepo.create_project(conn, "Старое имя")
+    prepo.rename_project(conn, pid, "Новое имя")
+    row = conn.execute("SELECT name FROM projects WHERE id = ?", (pid,)).fetchone()
+    assert row["name"] == "Новое имя"
+
+
+def test_move_project_prevents_cycle(conn):
+    parent_id = prepo.create_project(conn, "Родитель")
+    child_id = prepo.create_project(conn, "Ребёнок", parent_id)
+    with pytest.raises(ValueError):
+        prepo.move_project(conn, parent_id, child_id)
+
+
+def test_archive_and_unarchive_project(conn):
+    pid = prepo.create_project(conn, "Архивный проект")
+    prepo.archive_project(conn, pid)
+    assert conn.execute("SELECT is_archived FROM projects WHERE id=?", (pid,)).fetchone()["is_archived"] == 1
+    prepo.unarchive_project(conn, pid)
+    assert conn.execute("SELECT is_archived FROM projects WHERE id=?", (pid,)).fetchone()["is_archived"] == 0
+
+
+def test_get_project_path_breadcrumbs(conn):
+    ethno = conn.execute("SELECT id FROM projects WHERE name = 'Этнопроекты'").fetchone()["id"]
+    bashkir = conn.execute("SELECT id FROM projects WHERE name = 'Башкирский проект'").fetchone()["id"]
+    assert prepo.get_project_path(conn, bashkir) == "Этнопроекты › Башкирский проект"
+    assert prepo.get_project_path(conn, ethno) == "Этнопроекты"
+    assert prepo.get_project_path(conn, None) == ""
+
+
+def test_get_descendant_ids(conn):
+    ethno = conn.execute("SELECT id FROM projects WHERE name = 'Этнопроекты'").fetchone()["id"]
+    bashkir = conn.execute("SELECT id FROM projects WHERE name = 'Башкирский проект'").fetchone()["id"]
+    tatar = conn.execute("SELECT id FROM projects WHERE name = 'Татарский проект'").fetchone()["id"]
+    descendants = prepo.get_descendant_ids(conn, ethno)
+    assert {bashkir, tatar} <= descendants
+
+
+# ---------------------------------------------------------------------
+# Цветовая логика NevGen vs Semargl
+# ---------------------------------------------------------------------
+
+def test_color_green_when_snp_found_in_semargl():
+    assert hlogic.calculate_haplo_color("R1a-Z93-Z94", "R1a-Z93-Z94-YP1337") == hlogic.HaploColor.GREEN
+
+
+def test_color_yellow_when_root_matches_but_snp_missing():
+    assert hlogic.calculate_haplo_color("R1a-Z93-Z94", "R1a-Z93") == hlogic.HaploColor.YELLOW
+
+
+def test_color_red_when_roots_differ():
+    assert hlogic.calculate_haplo_color("R1a-Z93", "R1b-M269") == hlogic.HaploColor.RED
+
+
+def test_color_none_when_data_missing():
+    assert hlogic.calculate_haplo_color("", "R1a-Z93") == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color("R1a-Z93", None) == hlogic.HaploColor.NONE
+    assert hlogic.calculate_haplo_color(None, None) == hlogic.HaploColor.NONE
+
+
+def test_color_green_case_insensitive():
+    assert hlogic.calculate_haplo_color("r1a-z94", "R1A-Z93-Z94") == hlogic.HaploColor.GREEN
+
+
+# ---------------------------------------------------------------------
+# CRUD записей гаплогрупп + автозаполнение full_name
+# ---------------------------------------------------------------------
+
+def test_upsert_creates_record_with_full_name_from_order(conn):
+    gns = _make_test(conn, customer_name="Иванов Иван Иванович")
+    hap_id = hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a", "nevgen_prediction": "R1a-Z93"})
+    row = conn.execute("SELECT * FROM haplogroups WHERE id = ?", (hap_id,)).fetchone()
+    assert row["full_name"] == "Иванов Иван Иванович"
+    assert row["test_number"] == gns
+    assert row["y_dna"] == "R1a"
+
+
+def test_upsert_unknown_field_raises(conn):
+    gns = _make_test(conn)
+    with pytest.raises(ValueError):
+        hrepo.upsert_haplogroup(conn, gns, {"not_a_real_field": "x"})
+
+
+def test_upsert_unknown_test_number_raises(conn):
+    with pytest.raises(ValueError):
+        hrepo.upsert_haplogroup(conn, "GNPSK-NOPE", {"y_dna": "R1a"})
+
+
+def test_upsert_is_idempotent_update_not_duplicate(conn):
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1b"})
+    rows = conn.execute("SELECT * FROM haplogroups WHERE test_number = ?", (gns,)).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["y_dna"] == "R1b"
+
+
+def test_upsert_writes_audit_log(conn):
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"}, user_name="analyst1")
+    audit = conn.execute("SELECT * FROM audit_log WHERE entity='haplogroup'").fetchall()
+    assert len(audit) >= 1
+
+
+def test_reserved_fields_can_be_written_but_stay_hidden(conn):
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"analyst": "Петров", "review_status": "проверено"})
+    row = conn.execute("SELECT * FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["analyst"] == "Петров"
+    assert row["review_status"] == "проверено"
+
+
+# ---------------------------------------------------------------------
+# Фильтры списка
+# ---------------------------------------------------------------------
+
+def test_list_haplogroups_filters_by_project(conn):
+    ethno = conn.execute("SELECT id FROM projects WHERE name = 'Этнопроекты'").fetchone()["id"]
+    bashkir = conn.execute("SELECT id FROM projects WHERE name = 'Башкирский проект'").fetchone()["id"]
+    clients = conn.execute("SELECT id FROM projects WHERE name = 'Клиенты'").fetchone()["id"]
+
+    gns1 = _make_test(conn, customer_name="Клиент Один")
+    gns2 = _make_test(conn, customer_name="Клиент Два")
+    hrepo.upsert_haplogroup(conn, gns1, {"project_id": bashkir})
+    hrepo.upsert_haplogroup(conn, gns2, {"project_id": clients})
+
+    # фильтр по родителю "Этнопроекты" должен захватывать вложенный "Башкирский проект"
+    rows = hrepo.list_haplogroups(conn, project_id=ethno)
+    assert {r["test_number"] for r in rows} == {gns1}
+
+    rows2 = hrepo.list_haplogroups(conn, project_id=clients)
+    assert {r["test_number"] for r in rows2} == {gns2}
+
+
+def test_list_haplogroups_filters_by_text_fields(conn):
+    gns1 = _make_test(conn, customer_name="Сидоров Сидор")
+    gns2 = _make_test(conn, customer_name="Петров Пётр")
+    hrepo.upsert_haplogroup(conn, gns1, {"y_dna": "R1a", "mt_dna": "H1", "snp_issued": "Z93"})
+    hrepo.upsert_haplogroup(conn, gns2, {"y_dna": "I2", "mt_dna": "U5", "snp_issued": "L621"})
+
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, full_name="Сидоров")} == {gns1}
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, y_dna="I2")} == {gns2}
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, mt_dna="H1")} == {gns1}
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, snp_issued="L621")} == {gns2}
+    assert {r["test_number"] for r in hrepo.list_haplogroups(conn, test_number=gns1)} == {gns1}
+
+
+def test_list_haplogroups_excludes_archived_by_default(conn):
+    gns = _make_test(conn)
+    hap_id = hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    hrepo.archive_haplogroup(conn, hap_id)
+    assert hrepo.list_haplogroups(conn, test_number=gns) == []
+    assert len(hrepo.list_haplogroups(conn, test_number=gns, include_archived=True)) == 1
+
+
+def test_display_full_name_reflects_live_order_data(conn):
+    """full_name «из карточки» — список всегда показывает актуальное ФИО заказа,
+    даже если снимок в haplogroups.full_name устарел."""
+    gns = _make_test(conn, customer_name="Старое ФИО")
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    conn.execute("UPDATE orders SET customer_name = 'Новое ФИО' WHERE order_id = "
+                 "(SELECT order_id FROM tests WHERE gns_number = ?)", (gns,))
+    rows = hrepo.list_haplogroups(conn, test_number=gns)
+    assert rows[0]["display_full_name"] == "Новое ФИО"
+
+
+# ---------------------------------------------------------------------
+# Экспорт
+# ---------------------------------------------------------------------
+
+def test_export_haplogroups_to_excel(tmp_path, conn):
+    gns = _make_test(conn, customer_name="Экспортов Экспорт")
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a", "nevgen_prediction": "R1a-Z93",
+                                         "semargl_prediction": "R1a-Z93-Z94", "comment": "тест"})
+    rows = hrepo.list_haplogroups(conn)
+    export_rows = [{
+        "test_number": r["test_number"], "full_name": r["display_full_name"],
+        "project_path": prepo.get_project_path(conn, r["project_id"]),
+        "y_dna": r["y_dna"], "mt_dna": r["mt_dna"],
+        "nevgen_prediction": r["nevgen_prediction"], "semargl_prediction": r["semargl_prediction"],
+        "snp_issued": r["snp_issued"], "comment": r["comment"],
+    } for r in rows]
+
+    path = tmp_path / "export.xlsx"
+    count = exporter.export_haplogroups_to_excel(export_rows, str(path))
+    assert count == 1
+    assert path.exists()
+
+    import openpyxl
+    wb = openpyxl.load_workbook(path)
+    ws = wb.active
+    header = [c.value for c in ws[1]]
+    assert header == [label for _f, label in exporter.HAPLOGROUP_COLUMNS]
+    assert ws.cell(row=2, column=1).value == gns
+
+
+def test_export_haplogroups_to_csv(tmp_path, conn):
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"y_dna": "R1a"})
+    export_rows = [{"test_number": gns, "full_name": "X", "project_path": "", "y_dna": "R1a",
+                     "mt_dna": "", "nevgen_prediction": "", "semargl_prediction": "",
+                     "snp_issued": "", "comment": ""}]
+    path = tmp_path / "export.csv"
+    count = exporter.export_haplogroups_to_csv(export_rows, str(path))
+    assert count == 1
+    content = path.read_text(encoding="utf-8-sig")
+    assert gns in content
+    assert "№ теста" in content
+
+
+# ---------------------------------------------------------------------
+# Схема не сломала существующую бизнес-логику 1/2 вкладок
+# ---------------------------------------------------------------------
+
+def test_existing_order_and_event_flow_still_works(conn):
+    gns = _make_test(conn)
+    test_id = conn.execute("SELECT test_id FROM tests WHERE gns_number=?", (gns,)).fetchone()["test_id"]
+    repo.record_event(conn, test_id, "received", operator="оператор")
+    events = repo.list_events_for_test(conn, test_id)
+    assert any(e["event_type"] == "received" for e in events)

@@ -231,7 +231,62 @@ CREATE TABLE IF NOT EXISTS import_errors (
     error_message TEXT,
     created_at TEXT NOT NULL
 );
+
+-- ---------------------------------------------------------------------
+-- Гаплогруппы (вкладка №3): справочник проектов (с вложенностью) и
+-- сами записи по тестам. Обе таблицы — только добавление к схеме,
+-- существующие таблицы выше не менялись.
+-- ---------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id INTEGER REFERENCES projects(id),
+    name TEXT NOT NULL,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects(parent_id);
+
+-- Одна запись гаплогруппы на тест (test_number = tests.gns_number).
+-- full_name — снимок ФИО из карточки заказа на момент сохранения (не
+-- редактируется в этой вкладке напрямую, см. haplogroups_repo.py).
+--
+-- Резервные поля (заложены в БД, НЕ выводятся в UI вкладки, раздел ТЗ):
+--   date_prediction, analyst, review_status, date_issued.
+CREATE TABLE IF NOT EXISTS haplogroups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_number TEXT NOT NULL REFERENCES tests(gns_number),
+    full_name TEXT,
+    project_id INTEGER REFERENCES projects(id),
+    y_dna TEXT,
+    mt_dna TEXT,
+    nevgen_prediction TEXT,
+    semargl_prediction TEXT,
+    snp_issued TEXT,
+    comment TEXT,
+    date_prediction TEXT,
+    analyst TEXT,
+    review_status TEXT,
+    date_issued TEXT,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_haplogroups_test_number ON haplogroups(test_number);
+CREATE INDEX IF NOT EXISTS idx_haplogroups_project ON haplogroups(project_id);
 """
+
+DEFAULT_PROJECTS = [
+    # (name, parent_name или None)
+    ("Клиенты", None),
+    ("Этнопроекты", None),
+    ("Башкирский проект", "Этнопроекты"),
+    ("Татарский проект", "Этнопроекты"),
+]
 
 DEFAULT_TEST_TYPES = [
     # code,        display_name,        base_days, report_allowed, report_extra_days, sort
@@ -261,6 +316,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     выполнением скрипта), поэтому DDL выполняется отдельно от последующего
     заполнения справочников, которое оборачивается в свою транзакцию.
     """
+    from datetime import datetime
+
     conn.executescript(SCHEMA_SQL)
 
     conn.execute("BEGIN")
@@ -296,6 +353,19 @@ def init_db(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "INSERT INTO gnpsk_counter(id, next_number, prefix) VALUES (1, 1, 'GNPSK')"
             )
+
+        cur = conn.execute("SELECT COUNT(*) AS c FROM projects")
+        if cur.fetchone()["c"] == 0:
+            now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            name_to_id: dict[str, int] = {}
+            for name, parent_name in DEFAULT_PROJECTS:
+                parent_id = name_to_id.get(parent_name) if parent_name else None
+                cur2 = conn.execute(
+                    """INSERT INTO projects (parent_id, name, sort_order, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (parent_id, name, len(name_to_id), now, now),
+                )
+                name_to_id[name] = cur2.lastrowid
 
         conn.execute("COMMIT")
     except Exception:
