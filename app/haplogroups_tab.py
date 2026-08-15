@@ -42,13 +42,20 @@ _ROW_BG = {
     hlogic.HaploColor.RED: "#fee2e2",
 }
 
+# Данные строки для экспорта хранятся прямо на QTableWidgetItem (доп. роль),
+# а не в отдельном кэше-списке — иначе после сортировки таблицы кликом по
+# заголовку (setSortingEnabled(True) двигает строки местами) экспорт отдавал
+# бы данные в СТАРОМ порядке запроса, а не в том, что реально видно на
+# экране. setData/data на самой ячейке Qt переносит вместе со строкой при
+# сортировке, так что рассинхронизация невозможна в принципе.
+_EXPORT_DATA_ROLE = Qt.UserRole + 1
+
 
 class HaplogroupsTabWidget(QWidget):
     def __init__(self, conn: sqlite3.Connection, main_window):
         super().__init__()
         self.conn = conn
         self.main_window = main_window
-        self._rows_cache: list[dict] = []
         self._build_ui()
         self.refresh()
 
@@ -155,14 +162,17 @@ class HaplogroupsTabWidget(QWidget):
             snp_issued=self.snp_edit.text().strip() or None,
         )
 
-        self._rows_cache = []
+        # пути проектов для ВСЕХ строк одним запросом (Fix N+1) вместо
+        # get_project_path() внутри цикла на каждую строку
+        project_paths = prepo.build_project_paths(self.conn)
+
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             color = hlogic.calculate_haplo_color(
                 row["nevgen_prediction"], row["semargl_prediction"], row["y_dna"]
             )
-            project_path = prepo.get_project_path(self.conn, row["project_id"])
+            project_path = project_paths.get(row["project_id"], "")
             values = {
                 "test_number": row["test_number"] or "",
                 "full_name": row["display_full_name"] or "",
@@ -174,14 +184,7 @@ class HaplogroupsTabWidget(QWidget):
                 "snp_issued": row["snp_issued"] or "",
                 "comment": row["comment"] or "",
             }
-            bg = _ROW_BG.get(color)
-            for col_idx, (key, _label) in enumerate(COLUMNS):
-                item = QTableWidgetItem(values[key])
-                item.setData(Qt.UserRole, row["test_number"])
-                if bg:
-                    item.setBackground(QColor(bg))
-                self.table.setItem(i, col_idx, item)
-            self._rows_cache.append({
+            export_row = {
                 "test_number": values["test_number"],
                 "full_name": values["full_name"],
                 "project_path": project_path,
@@ -191,9 +194,26 @@ class HaplogroupsTabWidget(QWidget):
                 "semargl_prediction": values["semargl_prediction"],
                 "snp_issued": values["snp_issued"],
                 "comment": values["comment"],
-            })
+            }
+            bg = _ROW_BG.get(color)
+            for col_idx, (key, _label) in enumerate(COLUMNS):
+                item = QTableWidgetItem(values[key])
+                item.setData(Qt.UserRole, row["test_number"])
+                if col_idx == 0:
+                    item.setData(_EXPORT_DATA_ROLE, export_row)
+                if bg:
+                    item.setBackground(QColor(bg))
+                self.table.setItem(i, col_idx, item)
         self.table.setSortingEnabled(True)
         self.count_label.setText(f"Записей: {len(rows)}")
+
+    def _current_export_rows(self) -> list[dict]:
+        """Данные строк в ТЕКУЩЕМ порядке отображения таблицы (с учётом
+        сортировки кликом по заголовку), а не в порядке исходного запроса."""
+        return [
+            self.table.item(r, 0).data(_EXPORT_DATA_ROLE)
+            for r in range(self.table.rowCount())
+        ]
 
     # ------------------------------------------------------------------
     def _on_row_double_clicked(self, index) -> None:
@@ -225,7 +245,7 @@ class HaplogroupsTabWidget(QWidget):
         if not path:
             return
         try:
-            count = exporter.export_haplogroups_to_excel(self._rows_cache, path)
+            count = exporter.export_haplogroups_to_excel(self._current_export_rows(), path)
         except OSError as exc:
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return
@@ -239,7 +259,7 @@ class HaplogroupsTabWidget(QWidget):
         if not path:
             return
         try:
-            count = exporter.export_haplogroups_to_csv(self._rows_cache, path)
+            count = exporter.export_haplogroups_to_csv(self._current_export_rows(), path)
         except OSError as exc:
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return

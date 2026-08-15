@@ -7,6 +7,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
@@ -122,6 +123,16 @@ def test_get_descendant_ids(conn):
     assert {bashkir, tatar} <= descendants
 
 
+def test_build_project_paths_matches_single_lookup_for_every_project(conn):
+    """build_project_paths() (один запрос на все проекты, для устранения
+    N+1 в haplogroups_tab.refresh()) должен давать те же хлебные крошки,
+    что и поштучный get_project_path() для каждого id."""
+    all_ids = [r["id"] for r in prepo.list_projects(conn)]
+    batch = prepo.build_project_paths(conn)
+    for pid in all_ids:
+        assert batch.get(pid) == prepo.get_project_path(conn, pid)
+
+
 # ---------------------------------------------------------------------
 # Цветовая логика NevGen vs Semargl (якорь — подтверждённое поле Y-ДНК,
 # а не сравнение root(NevGen) с root(Semargl) друг с другом)
@@ -182,6 +193,24 @@ def test_color_none_when_any_field_missing():
 def test_color_green_case_insensitive():
     assert hlogic.calculate_haplo_color(
         "r1a-z94", "R1A-Z93-Z94", "r1a"
+    ) == hlogic.HaploColor.GREEN
+
+
+def test_color_snp_match_is_anchored_not_raw_substring():
+    """Найденный при финальном ревью баг: сырой substring-поиск терминального
+    SNP ('m17' in 'i-m170') ложно совпадал с более длинным именем другого
+    SNP. 'M17' не должен считаться найденным внутри 'M170'."""
+    assert hlogic.calculate_haplo_color(
+        "R1a-M17", "I-M170", "R1a"
+    ) != hlogic.HaploColor.GREEN
+    # при этом root(Y-ДНК)="R" не совпадает с root(Semargl)="I" -> RED
+    assert hlogic.calculate_haplo_color(
+        "R1a-M17", "I-M170", "R1a"
+    ) == hlogic.HaploColor.RED
+    # контрольная проверка: настоящее совпадение (SNP как отдельное слово)
+    # по-прежнему находится
+    assert hlogic.calculate_haplo_color(
+        "R1a-M17", "R1a-M17-YP417", "R1a"
     ) == hlogic.HaploColor.GREEN
 
 
@@ -445,3 +474,94 @@ def test_final_haplogroup_reserved_field_present_and_hidden(conn):
     hrepo.upsert_haplogroup(conn, gns, {"final_haplogroup": "I-PH908"})
     row = conn.execute("SELECT final_haplogroup FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
     assert row["final_haplogroup"] == "I-PH908"
+
+
+# ---------------------------------------------------------------------
+# GUI-level регрессии по итогам финального ревью (QT_QPA_PLATFORM=offscreen)
+# ---------------------------------------------------------------------
+
+def _qapp():
+    from PySide6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
+def test_edit_dialog_locked_test_number_survives_when_test_archived(conn):
+    """Найденный при ревью баг: если тест записи гаплогруппы архивирован,
+    он выпадает из list_test_numbers_for_picker(), и заблокированный
+    комбобокс молча съезжал на другой (первый активный) тест — сохранение
+    писало данные не в ту запись. _current_test_number() при заблокированном
+    диалоге обязан возвращать ИМЕННО переданный test_number, а не то, что
+    показывает комбобокс."""
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    gns_a = _make_test(conn, customer_name="Клиент А")
+    gns_b = _make_test(conn, customer_name="Клиент Б")
+    hrepo.upsert_haplogroup(conn, gns_a, {"y_dna": "R1a", "comment": "original A"})
+    hrepo.upsert_haplogroup(conn, gns_b, {"y_dna": "I2a", "comment": "original B"})
+
+    # архивируем тест A ПОСЛЕ создания его записи гаплогруппы — ровно та
+    # ситуация, когда диалог редактирования открывают на архивный тест
+    test_id_a = conn.execute("SELECT test_id FROM tests WHERE gns_number=?", (gns_a,)).fetchone()["test_id"]
+    conn.execute("UPDATE tests SET is_archived = 1 WHERE test_id = ?", (test_id_a,))
+
+    dlg = HaplogroupEditDialog(conn, test_number=gns_a)
+    try:
+        assert dlg._current_test_number() == gns_a
+        dlg.comment_edit.setPlainText("отредактировано")
+        dlg._on_save()
+    finally:
+        dlg.deleteLater()
+
+    row_a = conn.execute("SELECT comment FROM haplogroups WHERE test_number=?", (gns_a,)).fetchone()
+    row_b = conn.execute("SELECT comment FROM haplogroups WHERE test_number=?", (gns_b,)).fetchone()
+    assert row_a["comment"] == "отредактировано"
+    assert row_b["comment"] == "original B"  # запись B не затронута
+
+
+def test_edit_dialog_keeps_project_id_when_project_archived_after_assignment(conn):
+    """Найденный при ревью баг: список проектов в диалоге строился только из
+    активных (include_archived=False), поэтому редактирование записи с уже
+    архивированным проектом молча сбрасывало project_id на NULL при
+    сохранении, даже если пользователь не трогал это поле."""
+    _qapp()
+    from app.haplogroup_edit_dialog import HaplogroupEditDialog
+
+    tatar = conn.execute("SELECT id FROM projects WHERE name = 'Татарский проект'").fetchone()["id"]
+    gns = _make_test(conn)
+    hrepo.upsert_haplogroup(conn, gns, {"project_id": tatar, "y_dna": "R1a"})
+    prepo.archive_project(conn, tatar)
+
+    dlg = HaplogroupEditDialog(conn, test_number=gns)
+    try:
+        assert dlg.project_combo.currentData() == tatar
+        dlg._on_save()
+    finally:
+        dlg.deleteLater()
+
+    row = conn.execute("SELECT project_id FROM haplogroups WHERE test_number=?", (gns,)).fetchone()
+    assert row["project_id"] == tatar
+
+
+def test_export_rows_follow_current_table_sort_order(conn):
+    """Найденный при ревью баг: экспорт брал данные из отдельного кэша в
+    исходном порядке запроса (updated_at DESC), а не из порядка, реально
+    отображаемого в таблице после сортировки кликом по заголовку."""
+    _qapp()
+    from PySide6.QtCore import Qt
+    from app.haplogroups_tab import HaplogroupsTabWidget
+
+    gns_z = _make_test(conn, customer_name="Яковлев")
+    gns_a = _make_test(conn, customer_name="Абрамов")
+    hrepo.upsert_haplogroup(conn, gns_z, {"y_dna": "R1a"})
+    hrepo.upsert_haplogroup(conn, gns_a, {"y_dna": "I2a"})
+
+    tab = HaplogroupsTabWidget(conn, None)
+    try:
+        tab.table.sortItems(0, Qt.AscendingOrder)  # сортировка по "№ теста"
+        displayed_order = [tab.table.item(r, 0).text() for r in range(tab.table.rowCount())]
+        export_order = [r["test_number"] for r in tab._current_export_rows()]
+        assert export_order == displayed_order
+        assert displayed_order == sorted(displayed_order)
+    finally:
+        tab.deleteLater()

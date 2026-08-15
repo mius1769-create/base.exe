@@ -28,6 +28,10 @@ root(Semargl) даёт ложные совпадения: разные запи�
 Формат предикций — цепочка маркеров через дефис/">"/пробел, напр.
 "R1a-Z93-Z94" или "R1a > Z93 > Z94": первый токен — корневая гаплогруппа,
 последний — терминальный (самый глубокий) SNP.
+
+Поиск терминального SNP в строке Semargl — по границе слова (\\b), а не
+сырой substring: иначе короткое имя SNP (напр. "M17") ложно совпадало бы
+внутри более длинного имени другого SNP (напр. "M170").
 """
 from __future__ import annotations
 
@@ -76,7 +80,7 @@ def calculate_haplo_color(
         return HaploColor.NONE
 
     snp = haplo_terminal_snp(nevgen)
-    if snp and snp.lower() in semargl.lower():
+    if snp and re.search(rf"\b{re.escape(snp)}\b", semargl, re.IGNORECASE):
         return HaploColor.GREEN
 
     if haplo_major_letter(y_dna).lower() == haplo_major_letter(semargl).lower():

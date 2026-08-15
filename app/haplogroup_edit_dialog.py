@@ -48,8 +48,19 @@ class HaplogroupEditDialog(QDialog):
 
         if self._locked_test_number:
             idx = self.test_combo.findData(self._locked_test_number)
-            if idx >= 0:
-                self.test_combo.setCurrentIndex(idx)
+            if idx < 0:
+                # тест мог быть архивирован после создания записи гаплогруппы
+                # (list_test_numbers_for_picker отдаёт только активные) — без
+                # этой ветки комбобокс молча оставался бы на первом активном
+                # тесте из списка, и _current_test_number() увела бы сохранение
+                # на чужую запись (см. защиту ниже — эта ветка лишь для
+                # корректного отображения, а не источник истины при сохранении)
+                test_row = hrepo.get_test_by_number(self.conn, self._locked_test_number)
+                label = (f"{self._locked_test_number} — {test_row['customer_name']}"
+                         if test_row else self._locked_test_number)
+                self.test_combo.addItem(label, userData=self._locked_test_number)
+                idx = self.test_combo.count() - 1
+            self.test_combo.setCurrentIndex(idx)
             self.test_combo.setEnabled(False)
 
         self.full_name_label = QLabel("—")
@@ -57,9 +68,10 @@ class HaplogroupEditDialog(QDialog):
 
         self.project_combo = QComboBox()
         self.project_combo.addItem("— без проекта —", userData=None)
-        tree = prepo.build_tree(self.conn, include_archived=False)
-        for pid, name, depth, _archived in prepo.flatten_tree(tree):
-            self.project_combo.addItem(("  " * depth) + name, userData=pid)
+        tree = prepo.build_tree(self.conn, include_archived=True)
+        for pid, name, depth, archived in prepo.flatten_tree(tree):
+            label = ("  " * depth) + name + ("  (архив)" if archived else "")
+            self.project_combo.addItem(label, userData=pid)
         form.addRow("Проект", self.project_combo)
 
         self.y_dna_edit = QLineEdit()
@@ -94,6 +106,12 @@ class HaplogroupEditDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _current_test_number(self) -> Optional[str]:
+        if self._locked_test_number:
+            # источник истины при редактировании — только переданный
+            # test_number, а не текущее состояние комбобокса (который может
+            # не найти архивированный тест в своём списке и молча съехать на
+            # другую запись — см. комментарий в _build_ui)
+            return self._locked_test_number
         idx = self.test_combo.currentIndex()
         data = self.test_combo.itemData(idx) if idx >= 0 else None
         if data:
