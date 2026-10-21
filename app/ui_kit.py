@@ -18,7 +18,7 @@ from PySide6.QtCore import Qt, QPoint, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QCursor
 from PySide6.QtWidgets import (
     QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLineEdit, QSizePolicy, QTableWidgetItem,
+    QLineEdit, QSizePolicy, QTableWidgetItem, QCheckBox,
 )
 
 from . import business_logic as bl
@@ -86,10 +86,13 @@ _LAB = ("#f5eaff", "#ddc1ff", "#7e22ce", "#9333ea")
 _RECEIVED = ("#e8fbf8", "#b8ebe5", "#0f766e", "#4f46e5")
 _WAITING = ("#eef5ff", "#cbdcff", "#315eb8", "#4f46e5")
 _NEUTRAL = ("#f5f6f8", "#dfe3ea", "#596273", "#a8b0bd")
+_CANCELLED = ("#fdecec", "#f3b4b4", "#b91c1c", "#dc2626")  # тот же красный, что RowColor.RED
 
 
 def status_chip_style(label: str) -> tuple[str, str, str, str]:
     """Возвращает (bg, border, text, dot) hex-цвета для метки статуса."""
+    if label == "Отменён":
+        return _CANCELLED
     if label.startswith("Выдан"):
         return _DONE
     if label in ("Взято в работу", "В обработке"):
@@ -223,6 +226,7 @@ class HeaderFilterPopup(QFrame):
     document click-outside-close в JS-прототипе."""
 
     option_chosen = Signal(str)
+    multi_chosen = Signal(list)
     search_changed = Signal(str)
 
     def __init__(
@@ -231,7 +235,9 @@ class HeaderFilterPopup(QFrame):
         *,
         options: Optional[list[tuple[str, str]]] = None,
         searchable: bool = False,
+        multi: bool = False,
         current_value: str = "",
+        current_values: Optional[list[str]] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent, Qt.Popup)
@@ -239,6 +245,7 @@ class HeaderFilterPopup(QFrame):
         self.setFrameShape(QFrame.NoFrame)
         self.setMinimumWidth(220)
         self.setMaximumWidth(300)
+        self._multi = multi
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -249,6 +256,7 @@ class HeaderFilterPopup(QFrame):
         layout.addWidget(title_lbl)
 
         self._search_edit: Optional[QLineEdit] = None
+        self._checkboxes: list[tuple[str, QCheckBox]] = []
         if searchable:
             edit = QLineEdit()
             edit.setObjectName("filterSearch")
@@ -257,6 +265,21 @@ class HeaderFilterPopup(QFrame):
             edit.textChanged.connect(self.search_changed.emit)
             layout.addWidget(edit)
             self._search_edit = edit
+        elif multi:
+            # Мульти-select: несколько статусов сразу (напр. "В работе" +
+            # "Ожидаем получение") — отмечаем чекбоксами, применяем одной
+            # кнопкой, а не кликом по каждой опции (иначе попап закрывался
+            # бы после первого же выбора).
+            selected = set(current_values or [])
+            for value, label in options or []:
+                if value == "":
+                    continue  # "Все" не имеет смысла как отдельный чекбокс — для этого есть "Сбросить фильтр"
+                cb = QCheckBox(label)
+                cb.setObjectName("filterOptionCheckbox")
+                cb.setChecked(value in selected)
+                cb.setCursor(QCursor(Qt.PointingHandCursor))
+                layout.addWidget(cb)
+                self._checkboxes.append((value, cb))
         else:
             for value, label in options or []:
                 btn = QPushButton(label)
@@ -271,13 +294,32 @@ class HeaderFilterPopup(QFrame):
         divider.setFrameShape(QFrame.HLine)
         layout.addWidget(divider)
 
+        if multi:
+            apply_btn = QPushButton("Применить")
+            apply_btn.setObjectName("filterApply")
+            apply_btn.setCursor(QCursor(Qt.PointingHandCursor))
+            apply_btn.clicked.connect(self._apply_multi)
+            layout.addWidget(apply_btn)
+
         reset_btn = QPushButton("Сбросить фильтр")
         reset_btn.setObjectName("filterOption")
-        reset_btn.clicked.connect(lambda: self._choose(""))
+        reset_btn.clicked.connect(self._reset)
         layout.addWidget(reset_btn)
 
     def _choose(self, value: str) -> None:
         self.option_chosen.emit(value)
+        self.close()
+
+    def _apply_multi(self) -> None:
+        values = [v for v, cb in self._checkboxes if cb.isChecked()]
+        self.multi_chosen.emit(values)
+        self.close()
+
+    def _reset(self) -> None:
+        if self._multi:
+            self.multi_chosen.emit([])
+        else:
+            self.option_chosen.emit("")
         self.close()
 
     def showEvent(self, event) -> None:
@@ -291,10 +333,12 @@ class HeaderFilterMixin:
     активных фильтров колонок. Ожидает атрибуты self.table, self.refresh()."""
 
     def init_header_filters(self, keys: list[str]) -> None:
-        self._header_filter_values: dict[str, str] = {k: "" for k in keys}
+        # Значение — либо строка (поиск/одиночный выбор), либо список строк
+        # (мульти-select, см. open_header_filter(..., multi=True)).
+        self._header_filter_values: dict[str, "str | list[str]"] = {k: "" for k in keys}
         self._active_popup: Optional[HeaderFilterPopup] = None
 
-    def header_filter_value(self, key: str) -> str:
+    def header_filter_value(self, key: str) -> "str | list[str]":
         return self._header_filter_values.get(key, "")
 
     def header_filter_active(self, key: str) -> bool:
@@ -308,19 +352,26 @@ class HeaderFilterMixin:
         *,
         searchable: bool = False,
         options: Optional[list[tuple[str, str]]] = None,
+        multi: bool = False,
     ) -> None:
         header = self.table.horizontalHeader()
         pos = header.mapToGlobal(QPoint(header.sectionViewportPosition(section_index), header.height()))
+        current = self.header_filter_value(key)
         popup = HeaderFilterPopup(
             title,
             options=options,
             searchable=searchable,
-            current_value=self.header_filter_value(key),
+            multi=multi,
+            current_value=current if isinstance(current, str) else "",
+            current_values=current if isinstance(current, list) else None,
             parent=self.table,
         )
-        popup.option_chosen.connect(lambda v, k=key: self._set_header_filter(k, v))
-        if searchable:
-            popup.search_changed.connect(lambda v, k=key: self._set_header_filter(k, v))
+        if multi:
+            popup.multi_chosen.connect(lambda vals, k=key: self._set_header_filter(k, vals))
+        else:
+            popup.option_chosen.connect(lambda v, k=key: self._set_header_filter(k, v))
+            if searchable:
+                popup.search_changed.connect(lambda v, k=key: self._set_header_filter(k, v))
         popup.move(pos)
         popup.show()
         self._active_popup = popup

@@ -19,7 +19,7 @@ GENOPOISK CRM — импорт реальной исторической баз�
      WGS15X/WGS30X.
   7. Общий, колонка «тип теста» (H) на самом деле означает отчёт, а не
      тип: 'отчет'/'с отчетом'/'Premium' -> report_option='С отчётом';
-     '@Siberian_shaman' — утечка тег-хендла из соседней колонки,
+     Telegram-хендл (@...) — утечка из соседней колонки,
      ошибка поля, отчёт не проставляется, но строка не выбрасывается.
   8. Статус 'готов'/'готово' -> смысл «выдан клиенту». Дата выдачи
      проставляется, только если на листе реально есть колонка с датой
@@ -127,7 +127,7 @@ def normalize_obshiy_report_flag(raw: Any) -> tuple[str, Optional[str]]:
     s = str(raw).strip()
     if s in ("отчет", "с отчетом", "Premium"):
         return "С отчётом", None
-    if s == "@Siberian_shaman":
+    if s.startswith("@"):
         return "Обычный", "поле отчёта содержало утёкший Telegram-хендл (ошибка ввода) — проигнорировано"
     return "Обычный", f"нераспознанное значение поля отчёта: {s!r} — проигнорировано, отчёт не проставлен"
 
@@ -529,6 +529,7 @@ def import_processed_rows(conn, processed: list[ProcessedRow], *, user_name: str
                 new_value=f"импортирован из {pr.sheet}:{pr.excel_row} ({pr.gns_number})",
                 reason="историческая миграция Отчеты_2025-2026.xlsx",
             )
+            repo.ensure_haplogroup_stub(conn, pr.gns_number, pr.customer_name)
             conn.execute("COMMIT")
 
             stats.tests_created += 1

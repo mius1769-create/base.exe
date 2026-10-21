@@ -13,7 +13,7 @@ import sqlite3
 from datetime import date
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTableWidget,
     QLineEdit, QComboBox, QHeaderView, QAbstractItemView, QFrame,
@@ -65,7 +65,12 @@ class ClientTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         search_row = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск: номер теста, ФИО, телефон…")
-        self.search_edit.textChanged.connect(self.refresh)
+        # Debounce — см. internal_tab.py: refresh() на каждый символ ощутимо тормозил.
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(250)
+        self._search_debounce.timeout.connect(self.refresh)
+        self.search_edit.textChanged.connect(self._search_debounce.start)
         search_row.addWidget(self.search_edit, stretch=2)
 
         self.filter_combo = QComboBox()
@@ -166,11 +171,20 @@ class ClientTabWidget(QWidget, ui_kit.HeaderFilterMixin):
                 operator_started_at=repo.parse_iso_dt(row["operator_started_at"]),
                 today=today,
             )
+            is_lab_product = bool(row["requires_lab"])
+            if is_lab_product:
+                status_label = bl.client_status_label(events)
+                deadline_value = repo.parse_iso_date(row["deadline_date"])
+            else:
+                present = {e["event_type"] for e in events}
+                status_label = "Отменён" if "cancelled" in present else ("Выдан клиенту" if "issued" in present else "Заказан")
+                deadline_value = None
+                urgency = bl.RowColor.NORMAL
             enriched.append({
                 "row": row,
                 "urgency": urgency,
-                "status_label": bl.client_status_label(events),
-                "deadline_date": repo.parse_iso_date(row["deadline_date"]),
+                "status_label": status_label,
+                "deadline_date": deadline_value,
             })
 
         type_pairs = {(e["row"]["test_type"], pcat.get_display_name(e["row"]["test_type"])) for e in enriched}
@@ -190,7 +204,8 @@ class ClientTabWidget(QWidget, ui_kit.HeaderFilterMixin):
             rank_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(i, 0, rank_item)
 
-            gns_item = ui_kit.make_table_item(row["gns_number"] or "")
+            gns_display = (row["gns_number"] or "") if bool(row["requires_lab"]) else "—"
+            gns_item = ui_kit.make_table_item(gns_display)
             gns_item.setData(Qt.UserRole, row["test_id"])
             self.table.setItem(i, 1, gns_item)
             self.table.setItem(i, 2, ui_kit.make_table_item(row["customer_name"] or ""))
@@ -201,7 +216,7 @@ class ClientTabWidget(QWidget, ui_kit.HeaderFilterMixin):
             self.table.setCellWidget(i, 4, ui_kit.make_status_chip(e["status_label"]))
 
             self.table.setCellWidget(i, 5, ui_kit.make_deadline_cell(
-                fmt_date(row["deadline_date"]) or "—", ui_kit.deadline_text_color(e["urgency"])
+                (fmt_date(row["deadline_date"]) if bool(row["requires_lab"]) else "—") or "—", ui_kit.deadline_text_color(e["urgency"])
             ))
 
             if keep_selection_test_id is not None and row["test_id"] == keep_selection_test_id:
@@ -212,6 +227,19 @@ class ClientTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         if select_row_idx is not None:
             self.table.selectRow(select_row_idx)
             self.card.show_test(keep_selection_test_id)  # см. internal_tab.py: сигнал может не сработать
+        elif keep_selection_test_id is not None:
+            # Баг синхронизации: main_window.on_event_saved() вызывает
+            # refresh(keep_selection_test_id=...) после каждого действия во
+            # «Внутренней работе». select_row_idx ищется только в filtered
+            # (после поиска/быстрого фильтра/фильтра в шапке этой вкладки) —
+            # если только что изменённый тест перестал под них подпадать
+            # (например активен фильтр по статусу, а статус только что
+            # сменился), select_row_idx оставался None, и код ниже стирал
+            # уже показанную карточку через card.clear() вместо того, чтобы
+            # показать новый статус. Показываем карточку напрямую по
+            # test_id, даже если строка не видна в текущей отфильтрованной
+            # таблице.
+            self.card.show_test(keep_selection_test_id)
         else:
             self.card.clear()
 
@@ -375,23 +403,28 @@ class ClientCardWidget(QFrame):
             return
 
         events = repo.list_events_for_test(conn, test_id)
-        client_status = bl.client_status_label(events)
 
         self._clear_layout(self.badge_slot)
         self.badge_slot.addWidget(ui_kit.make_type_badge(
             pcat.get_display_name(row["test_type"]), pcat.get_color(row["test_type"])
         ))
-        self.header_label.setText(row["gns_number"])
+        tt_meta = repo.get_test_type(conn, row["test_type"])
+        is_lab_product = bool(tt_meta["requires_lab"]) if "requires_lab" in tt_meta.keys() else True
+        if is_lab_product:
+            client_status = bl.client_status_label(events)
+        else:
+            present = {e["event_type"] for e in events}
+            client_status = "Отменён" if "cancelled" in present else ("Выдан клиенту" if "issued" in present else "Заказан")
+        self.header_label.setText(row["gns_number"] if is_lab_product else "Отчёт / услуга")
         self.status_pill.setText(client_status)
         self.status_pill.setVisible(True)
 
-        deadline_text = "уточняется"
-        dl = repo.parse_iso_date(row["deadline_date"])
-        if dl:
-            deadline_text = dl.strftime("%d.%m.%Y")
+        dl = repo.parse_iso_date(row["deadline_date"]) if is_lab_product else None
+        deadline_text = dl.strftime("%d.%m.%Y") if dl else ("уточняется" if is_lab_product else "—")
         self.deadline_big.setText(deadline_text)
         self.deadline_note.setText(
-            "Ориентировочный срок готовности" if dl else "Рассчитается после получения образца"
+            ("Ориентировочный срок готовности" if dl else "Рассчитается после получения образца")
+            if is_lab_product else "Сервисная позиция — лабораторный дедлайн не применяется"
         )
 
         self.client_text.setText(
@@ -417,9 +450,17 @@ class ClientCardWidget(QFrame):
             header.setStyleSheet("background:transparent; border:none;")
             self.sibling_layout.addWidget(header)
             for s in siblings:
-                s_status = bl.client_status_label(sib_events.get(s["test_id"], []))
+                s_events = sib_events.get(s["test_id"], [])
                 marker = "▶ " if s["test_id"] == test_id else ""
-                text = f"{marker}{pcat.get_display_name(s['test_type'])} — {s['gns_number']} — {s_status}"
+                s_tt = repo.get_test_type(conn, s["test_type"])
+                s_is_lab = bool(s_tt["requires_lab"])
+                if s_is_lab:
+                    s_status = bl.client_status_label(s_events)
+                else:
+                    s_present = {e["event_type"] for e in s_events}
+                    s_status = "Отменён" if "cancelled" in s_present else ("Выдан клиенту" if "issued" in s_present else "Заказан")
+                s_gns = s["gns_number"] if s_is_lab else "без GNPSK"
+                text = f"{marker}{pcat.get_display_name(s['test_type'])} — {s_gns} — {s_status}"
                 dot_hex = pcat.get_color(s["test_type"]) or "#a8b0bd"
                 self.sibling_layout.addWidget(ui_kit.make_dot_line(dot_hex, text))
             self.sibling_box.setVisible(True)
@@ -435,7 +476,8 @@ class ClientCardWidget(QFrame):
         awaiting = bl.is_awaiting_receipt(events)
 
         self._clear_layout(self.timeline_layout)
-        for et, label in CLIENT_TIMELINE_STEPS:
+        timeline_steps = CLIENT_TIMELINE_STEPS if is_lab_product else [("order_created", "Заказан"), ("issued", "Выдан клиенту")]
+        for et, label in timeline_steps:
             target_rank = rank[et]
             if et == "received" and awaiting:
                 mark = "○"

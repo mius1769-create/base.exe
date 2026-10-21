@@ -89,9 +89,75 @@ def list_test_types(conn: sqlite3.Connection, active_only: bool = True) -> list[
     return conn.execute(q).fetchall()
 
 
+def insert_test_type(conn: sqlite3.Connection, *, code: str, display_name: str,
+                     base_deadline_days: int, report_allowed: bool, report_extra_days: int,
+                     price: float, cost_price: float, is_active: bool = True,
+                     sort_order: int = 0, requires_lab: bool = True) -> None:
+    code = code.strip().upper()
+    conn.execute(
+        """INSERT INTO test_types
+           (code, display_name, base_deadline_days, report_allowed, report_extra_days,
+            is_active, sort_order, price, cost_price, requires_lab)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (code, display_name.strip(), int(base_deadline_days), int(report_allowed),
+         int(report_extra_days), int(is_active), int(sort_order), float(price),
+         float(cost_price), int(requires_lab)),
+    )
+
+
+def update_test_type(conn: sqlite3.Connection, code: str, *, display_name: str,
+                     base_deadline_days: int, report_allowed: bool, report_extra_days: int,
+                     price: float, cost_price: float, is_active: bool, sort_order: int,
+                     requires_lab: bool = True) -> None:
+    cur = conn.execute(
+        """UPDATE test_types SET display_name=?, base_deadline_days=?, report_allowed=?,
+           report_extra_days=?, price=?, cost_price=?, is_active=?, sort_order=?, requires_lab=?
+           WHERE code=?""",
+        (display_name.strip(), int(base_deadline_days), int(report_allowed), int(report_extra_days),
+         float(price), float(cost_price), int(is_active), int(sort_order), int(requires_lab), code.strip().upper()),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"Неизвестный тип теста: {code}")
+
+
+def deactivate_test_type(conn: sqlite3.Connection, code: str) -> None:
+    cur = conn.execute("UPDATE test_types SET is_active=0 WHERE code=?", (code.strip().upper(),))
+    if cur.rowcount == 0:
+        raise ValueError(f"Неизвестный тип теста: {code}")
+
+
+def delete_test_type(conn: sqlite3.Connection, code: str) -> None:
+    code = code.strip().upper()
+    if conn.execute("SELECT 1 FROM tests WHERE test_type=? LIMIT 1", (code,)).fetchone():
+        raise ValueError("Нельзя удалить продукт: он уже используется в заказах. Деактивируйте его.")
+    for row in conn.execute("SELECT test_type_codes FROM product_mappings").fetchall():
+        try:
+            if code in json.loads(row["test_type_codes"] or "[]"):
+                raise ValueError("Нельзя удалить продукт: он используется в сопоставлении товаров Telegram.")
+        except json.JSONDecodeError:
+            continue
+    cur = conn.execute("DELETE FROM test_types WHERE code=?", (code,))
+    if cur.rowcount == 0:
+        raise ValueError(f"Неизвестный тип теста: {code}")
+
+
 # ---------------------------------------------------------------------
 # Создание заказа и разбор на тесты (раздел 5)
 # ---------------------------------------------------------------------
+
+def ensure_order_promo_column(conn: sqlite3.Connection) -> None:
+    """Идемпотентно добавляет признак промо-заказа в существующие БД."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
+    if "is_promo" in cols:
+        return
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("ALTER TABLE orders ADD COLUMN is_promo INTEGER NOT NULL DEFAULT 0")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+
 
 @dataclass
 class NewOrderInput:
@@ -108,10 +174,12 @@ class NewOrderInput:
     source: str = "manual"
     source_raw: Optional[str] = None
     needs_review: bool = False
+    is_promo: bool = False
     test_type_codes: list[str] = field(default_factory=list)  # напр. ["Y50", "MTDNA"]
     report_added: bool = False
     sample_received_at: Optional[date] = None
     user_name: Optional[str] = None
+    manual_gns_number: Optional[str] = None  # оператор указал номер вручную (напр. старый тест 2025 г.)
 
 
 def create_order_with_tests(conn: sqlite3.Connection, data: NewOrderInput) -> tuple[int, list[int]]:
@@ -122,6 +190,7 @@ def create_order_with_tests(conn: sqlite3.Connection, data: NewOrderInput) -> tu
 
     Возвращает (order_id, [test_id, ...]).
     """
+    ensure_order_promo_column(conn)
     conn.execute("BEGIN IMMEDIATE")
     try:
         ts = now_iso()
@@ -129,13 +198,13 @@ def create_order_with_tests(conn: sqlite3.Connection, data: NewOrderInput) -> tu
             """INSERT INTO orders
                (order_no, order_status, customer_name, contacts, delivery_method,
                 delivery_address, tracking_number, order_amount, extra_payment,
-                refund_amount, source, source_raw, needs_review, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                refund_amount, source, source_raw, needs_review, is_promo, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 data.order_no, data.order_status, data.customer_name, data.contacts,
                 data.delivery_method, data.delivery_address, data.tracking_number,
                 data.order_amount, data.extra_payment, data.refund_amount,
-                data.source, data.source_raw, int(data.needs_review), ts, ts,
+                data.source, data.source_raw, int(data.needs_review), int(data.is_promo), ts, ts,
             ),
         )
         order_id = cur.lastrowid
@@ -145,33 +214,53 @@ def create_order_with_tests(conn: sqlite3.Connection, data: NewOrderInput) -> tu
         test_ids: list[int] = []
         report_option = "С отчётом" if data.report_added else "Обычный"
 
-        for code in bl.split_order_into_test_types(data.test_type_codes):
+        codes = bl.split_order_into_test_types(data.test_type_codes)
+        manual_gns = (data.manual_gns_number or "").strip() or None
+        if manual_gns and len(codes) != 1:
+            raise ValueError(
+                "Ручной номер теста можно указать только когда в заказе один тест. "
+                "Для комплекта из нескольких тестов оставьте поле «№ теста» пустым."
+            )
+
+        for code in codes:
             tt = get_test_type(conn, code)
             if data.report_added:
                 bl.validate_report_option(report_option, bool(tt["report_allowed"]))
 
-            deadline = bl.calculate_deadline(
-                base_deadline_days=tt["base_deadline_days"],
-                report_option=report_option,
-                report_allowed=bool(tt["report_allowed"]),
-                report_extra_days=tt["report_extra_days"],
-                sample_received_at=data.sample_received_at,
-            )
+            requires_lab = bool(tt["requires_lab"]) if "requires_lab" in tt.keys() else True
+            if requires_lab:
+                deadline = bl.calculate_deadline(
+                    base_deadline_days=tt["base_deadline_days"],
+                    report_option=report_option,
+                    report_allowed=bool(tt["report_allowed"]),
+                    report_extra_days=tt["report_extra_days"],
+                    sample_received_at=data.sample_received_at,
+                )
+                # Только лабораторные продукты расходуют последовательность GNPSK.
+                gns = manual_gns or bl._reserve_next_gnpsk_locked(conn)
+            else:
+                # gns_number пока NOT NULL/UNIQUE в старой схеме. Для сервисной позиции
+                # используем внутренний технический ID, который НЕ расходует GNPSK и
+                # скрывается в UI. Это безопаснее миграции FK tests.gns_number.
+                deadline = None
+                gns = f"SERVICE-{order_id}-{code}"
 
-            gns = bl._reserve_next_gnpsk_locked(conn)  # мы уже внутри BEGIN IMMEDIATE этой функции
-
-            cur = conn.execute(
-                """INSERT INTO tests
-                   (order_id, gns_number, test_type, report_option, deadline_days, deadline_date,
-                    sample_received_at, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
-                (
-                    order_id, gns, code, report_option, deadline.deadline_days,
-                    deadline.deadline_date.isoformat() if deadline.deadline_date else None,
-                    data.sample_received_at.isoformat() if data.sample_received_at else None,
-                    ts, ts,
-                ),
-            )
+            try:
+                cur = conn.execute(
+                    """INSERT INTO tests
+                       (order_id, gns_number, test_type, report_option, deadline_days, deadline_date,
+                        sample_received_at, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (
+                        order_id, gns, code, report_option,
+                        deadline.deadline_days if deadline else None,
+                        deadline.deadline_date.isoformat() if deadline and deadline.deadline_date else None,
+                        data.sample_received_at.isoformat() if data.sample_received_at else None,
+                        ts, ts,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"Номер теста «{gns}» уже используется. Укажите другой номер.") from exc
             test_id = cur.lastrowid
             test_ids.append(test_id)
             write_audit(conn, user_name=data.user_name, entity="test", entity_id=test_id,
@@ -185,15 +274,21 @@ def create_order_with_tests(conn: sqlite3.Connection, data: NewOrderInput) -> tu
                    VALUES (?, 'order_created', ?, 0, ?, ?, NULL)""",
                 (test_id, ts, data.user_name, ts),
             )
-            if data.sample_received_at:
-                # если дата образца известна уже при создании (напр. импорт/ручной ввод
-                # "образец уже получен") — сразу фиксируем и событие 'received'
-                conn.execute(
-                    """INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction,
-                                                 recorded_by, recorded_at, internal_note)
-                       VALUES (?, 'received', ?, 0, ?, ?, NULL)""",
-                    (test_id, f"{data.sample_received_at.isoformat()}T00:00:00", data.user_name, ts),
-                )
+            if requires_lab and data.sample_received_at:
+                # Если при создании уже известно, что образец получен, предыдущий
+                # обязательный этап «Отправлен» тоже считается пройденным.
+                received_ts = f"{data.sample_received_at.isoformat()}T00:00:00"
+                for initial_event in ("dispatched", "received"):
+                    conn.execute(
+                        """INSERT INTO test_events (test_id, event_type, event_time, is_manual_correction,
+                                                     recorded_by, recorded_at, internal_note)
+                           VALUES (?, ?, ?, 0, ?, ?, ?)""",
+                        (test_id, initial_event, received_ts, data.user_name, ts,
+                         "автоматически закрыт при создании с уже полученным образцом"
+                         if initial_event == "dispatched" else None),
+                    )
+            if requires_lab:
+                ensure_haplogroup_stub(conn, gns, data.customer_name)
 
         if data.report_added:
             for test_id in test_ids:
@@ -258,20 +353,26 @@ def _update_test_fields_locked(
         row2 = conn.execute("SELECT * FROM tests WHERE test_id = ?", (test_id,)).fetchone()
         tt = get_test_type(conn, row2["test_type"])
         sample_date = parse_iso_date(row2["sample_received_at"])
-        deadline = bl.calculate_deadline(
-            base_deadline_days=tt["base_deadline_days"],
-            report_option=row2["report_option"],
-            report_allowed=bool(tt["report_allowed"]),
-            report_extra_days=tt["report_extra_days"],
-            sample_received_at=sample_date,
-        )
+        requires_lab = bool(tt["requires_lab"]) if "requires_lab" in tt.keys() else True
+        if requires_lab:
+            deadline = bl.calculate_deadline(
+                base_deadline_days=tt["base_deadline_days"],
+                report_option=row2["report_option"],
+                report_allowed=bool(tt["report_allowed"]),
+                report_extra_days=tt["report_extra_days"],
+                sample_received_at=sample_date,
+            )
+            new_days = deadline.deadline_days
+            new_date = deadline.deadline_date.isoformat() if deadline.deadline_date else None
+        else:
+            new_days = None
+            new_date = None
         old_days, old_date = row2["deadline_days"], row2["deadline_date"]
-        new_date = deadline.deadline_date.isoformat() if deadline.deadline_date else None
         conn.execute(
             "UPDATE tests SET deadline_days = ?, deadline_date = ? WHERE test_id = ?",
-            (deadline.deadline_days, new_date, test_id),
+            (new_days, new_date, test_id),
         )
-        if old_days != deadline.deadline_days or old_date != new_date:
+        if old_days != new_days or old_date != new_date:
             write_audit(conn, user_name=user_name, entity="test", entity_id=test_id,
                         field="deadline_date", old_value=old_date, new_value=new_date,
                         reason="пересчёт срока")
@@ -348,6 +449,48 @@ def apply_order_financial_change(
         raise
 
 
+
+def delete_order_item(conn: sqlite3.Connection, test_id: int, *, user_name: Optional[str] = None) -> int:
+    """Безопасно удаляет ошибочно добавленную позицию заказа.
+
+    Сервисную позицию можно удалить, пока она не выдана. Лабораторный тест
+    разрешено удалить только до начала производственного процесса. Возвращает order_id.
+    """
+    row = conn.execute(
+        """SELECT t.*, COALESCE(tt.requires_lab,1) AS requires_lab, tt.display_name
+           FROM tests t LEFT JOIN test_types tt ON tt.code=t.test_type WHERE t.test_id=?""",
+        (test_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Позиция заказа не найдена.")
+    events = conn.execute("SELECT event_type FROM test_events WHERE test_id=?", (test_id,)).fetchall()
+    meaningful = {e["event_type"] for e in events} - {"order_created", "cancelled"}
+    if meaningful:
+        raise ValueError(
+            "Нельзя удалить позицию: по ней уже начат производственный процесс. "
+            "Используйте отмену/архивирование, чтобы сохранить историю."
+        )
+    order_id = int(row["order_id"])
+    gns = row["gns_number"]
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Сначала зависимости, затем сама позиция. audit_log FK не имеет и сохраняет историю.
+        conn.execute("DELETE FROM report_services WHERE test_id=?", (test_id,))
+        if gns:
+            conn.execute("DELETE FROM haplogroups WHERE test_number=?", (gns,))
+        conn.execute("DELETE FROM test_events WHERE test_id=?", (test_id,))
+        conn.execute("DELETE FROM tests WHERE test_id=?", (test_id,))
+        write_audit(
+            conn, user_name=user_name, entity="test", entity_id=test_id, field="deleted_order_item",
+            old_value=f"{row['test_type']} / {gns}", new_value="удалено",
+            reason="удаление ошибочно добавленной позиции из заказа",
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return order_id
+
 def archive_order(conn: sqlite3.Connection, order_id: int, *, reason: str, user_name: Optional[str] = None) -> None:
     """Логическое удаление заказа (раздел 14: удаление либо запрещено, либо только логическое)."""
     conn.execute("BEGIN IMMEDIATE")
@@ -366,6 +509,16 @@ def archive_order(conn: sqlite3.Connection, order_id: int, *, reason: str, user_
 # Поиск / фильтры (раздел 17)
 # ---------------------------------------------------------------------
 
+
+def ensure_haplogroup_stub(conn: sqlite3.Connection, gns_number: str, full_name: str = "") -> None:
+    """Создаёт пустую строку вкладки «Гаплогруппы» для лабораторного теста."""
+    ts = now_iso()
+    conn.execute(
+        """INSERT OR IGNORE INTO haplogroups
+           (test_number, full_name, created_at, updated_at) VALUES (?,?,?,?)""",
+        (gns_number, full_name or None, ts, ts),
+    )
+
 QUICK_FILTERS = {
     "all": None,
     "in_progress": "operator_started_at IS NOT NULL AND client_issued_at IS NULL",
@@ -383,17 +536,30 @@ def list_tests_with_order(
     search: Optional[str] = None,
     quick_filter: str = "all",
     include_archived: bool = False,
+    project_id: Optional[int] = None,
+    lab_only: bool = False,
 ) -> list[sqlite3.Row]:
     q = """
-        SELECT t.*, o.order_no, o.customer_name, o.contacts, o.order_status
+        SELECT t.*, o.order_no, o.customer_name, o.contacts, o.order_status,
+               COALESCE(tt.requires_lab, 1) AS requires_lab
         FROM tests t
         JOIN orders o ON o.order_id = t.order_id
+        LEFT JOIN test_types tt ON tt.code = t.test_type
         WHERE 1=1
     """
     params: list[Any] = []
 
     if not include_archived:
         q += " AND t.is_archived = 0 AND o.is_archived = 0"
+    if lab_only:
+        q += " AND COALESCE(tt.requires_lab, 1) = 1"
+
+    # Совместимость с Internal Work: проект хранится в haplogroups.project_id
+    # и привязан к тесту по test_number = tests.gns_number. Если проект не
+    # выбран (None), поведение старого списка полностью сохраняется.
+    if project_id is not None:
+        q += " AND EXISTS (SELECT 1 FROM haplogroups h WHERE h.test_number = t.gns_number AND h.project_id = ?)"
+        params.append(project_id)
 
     if search:
         like = f"%{search}%"
@@ -407,7 +573,7 @@ def list_tests_with_order(
     if cond:
         q += f" AND {cond}"
 
-    q += " ORDER BY t.updated_at DESC"
+    q += " ORDER BY o.created_at DESC, t.created_at DESC, t.test_id DESC"
     rows = conn.execute(q, params).fetchall()
 
     if quick_filter in ("urgent", "overdue"):
@@ -471,94 +637,98 @@ def record_event(
     note: Optional[str] = None,
     user_name: Optional[str] = None,
 ) -> int:
-    """
-    Фиксирует операционное событие теста (раздел ТЗ: "все действия
-    фиксируются как события с автоматической датой/временем и возможностью
-    ручной корректировки"). event_time по умолчанию — текущий момент;
-    передайте свой ISO-datetime для ручной корректировки задним числом
-    (is_manual_correction=True тогда стоит проставить явно).
+    """Фиксирует этап теста и автоматически закрывает пропущенные
+    обязательные предыдущие этапы лабораторного конвейера.
 
-    ИДЕМПОТЕНТНОСТЬ (найденный баг: двойной клик создавал несколько
-    одинаковых событий 'received' и т.п.): каждый event_type может
-    существовать для теста только ОДИН раз. Повторный вызов record_event()
-    с уже существующим event_type — это no-op: не создаёт вторую запись,
-    не меняет event_time, не трогает зеркалированные колонки и не
-    пересчитывает дедлайн повторно. Просто возвращается id уже
-    существующей записи. Если нужно скорректировать время уже
-    зафиксированного события — используйте отдельную correct_event_time()
-    (это осознанное редактирование, а не повторное "нажатие кнопки").
-
-    Защита на двух уровнях:
-      1) проверка "уже существует?" ДО INSERT — закрывает подавляющее
-         большинство случаев (в т.ч. двойной клик в UI);
-      2) UNIQUE-индекс idx_test_events_unique_stage на (test_id, event_type)
-         в самой БД — страхует от гонки, если два вызова всё же дойдут до
-         INSERT почти одновременно; IntegrityError перехватывается и
-         трактуется точно так же, как обнаруженный дубль.
-
-    Автоматически зеркалирует событие в соответствующую старую колонку
-    tests (см. _EVENT_MIRROR_FIELD), включая пересчёт дедлайна для
-    'received' — но ТОЛЬКО при первой, реальной записи события.
-
-    Возвращает id записи test_events (существующей или новой).
+    Например, фиксация ``received`` при отсутствии ``dispatched`` сначала
+    создаст ``dispatched`` с тем же временем; ``handed_to_lab`` закроет
+    ``dispatched`` и ``received`` и т.д. Повторная запись любого этапа
+    остаётся идемпотентной. ``cancelled`` каскад не запускает.
     """
     if event_type not in bl.EVENT_ORDER:
         raise ValueError(f"Неизвестный тип события: {event_type!r}. Допустимые: {bl.EVENT_ORDER}")
 
+    # Сервисные позиции не должны получать лабораторные события.
+    test_meta = conn.execute(
+        """SELECT COALESCE(tt.requires_lab, 1) AS requires_lab
+             FROM tests t LEFT JOIN test_types tt ON tt.code=t.test_type
+             WHERE t.test_id=?""", (test_id,)
+    ).fetchone()
+    if test_meta is None:
+        raise ValueError(f"Тест id={test_id} не найден")
+    if not bool(test_meta["requires_lab"]) and event_type not in ("order_created", "cancelled", "issued"):
+        raise ValueError("Для сервисной позиции лабораторные этапы недоступны.")
+
     ts = now_iso()
     event_time_iso = event_time or ts
+    actor = user_name or operator
+
+    # Обычная производственная цепочка. order_created создаётся при создании
+    # заказа; cancelled — отдельное тупиковое состояние и сюда не входит.
+    production_chain = [
+        "dispatched", "received", "handed_to_lab",
+        "profile_received", "in_progress", "issued",
+    ]
 
     conn.execute("BEGIN IMMEDIATE")
     try:
         existing = conn.execute(
-            "SELECT id FROM test_events WHERE test_id = ? AND event_type = ?",
+            "SELECT id FROM test_events WHERE test_id=? AND event_type=?",
             (test_id, event_type),
         ).fetchone()
         if existing is not None:
-            # идемпотентный no-op: ничего не создаём, ничего не зеркалируем,
-            # дедлайн не пересчитываем — именно это требовалось в баг-репорте
             conn.execute("COMMIT")
             return existing["id"]
 
-        try:
+        stages = [event_type]
+        if bool(test_meta["requires_lab"]) and event_type in production_chain:
+            target = production_chain.index(event_type)
+            stages = production_chain[:target + 1]
+
+        target_event_id = None
+        for stage in stages:
+            row = conn.execute(
+                "SELECT id FROM test_events WHERE test_id=? AND event_type=?",
+                (test_id, stage),
+            ).fetchone()
+            if row is not None:
+                if stage == event_type:
+                    target_event_id = row["id"]
+                continue
+
+            auto_added = stage != event_type
+            stage_note = (
+                f"автоматически закрыт как предыдущий этап перед {event_type}"
+                if auto_added else note
+            )
             cur = conn.execute(
                 """INSERT INTO test_events
                    (test_id, event_type, event_time, is_manual_correction, recorded_by, recorded_at, internal_note)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (test_id, event_type, event_time_iso, int(is_manual_correction), operator, ts, note),
+                (test_id, stage, event_time_iso, int(is_manual_correction), operator, ts, stage_note),
             )
-        except sqlite3.IntegrityError:
-            # редкая гонка: кто-то успел вставить между нашей проверкой и INSERT —
-            # трактуем как тот же самый идемпотентный no-op, а не как ошибку
-            row = conn.execute(
-                "SELECT id FROM test_events WHERE test_id = ? AND event_type = ?",
-                (test_id, event_type),
-            ).fetchone()
-            conn.execute("COMMIT")
-            return row["id"]
+            if stage == event_type:
+                target_event_id = cur.lastrowid
 
-        event_id = cur.lastrowid
+            write_audit(
+                conn, user_name=actor, entity="test", entity_id=test_id,
+                field=f"event:{stage}", old_value=None, new_value=event_time_iso,
+                reason=stage_note or ("ручная корректировка" if is_manual_correction else "внутреннее событие"),
+            )
 
-        write_audit(
-            conn, user_name=user_name or operator, entity="test", entity_id=test_id,
-            field=f"event:{event_type}", old_value=None, new_value=event_time_iso,
-            reason=note or ("ручная корректировка" if is_manual_correction else "внутреннее событие"),
-        )
-
-        mirror_field = _EVENT_MIRROR_FIELD.get(event_type)
-        if mirror_field:
-            changes: dict[str, Any] = {}
-            if mirror_field == "sample_received_at":
-                changes[mirror_field] = event_time_iso[:10]  # эта колонка хранит только дату
-            else:
-                changes[mirror_field] = event_time_iso
-            if event_type == "in_progress" and operator:
-                changes["operator_name"] = operator
-            _update_test_fields_locked(conn, test_id, changes, user_name=user_name or operator,
-                                        reason="зеркалирование из test_events")
+            mirror_field = _EVENT_MIRROR_FIELD.get(stage)
+            if mirror_field:
+                changes: dict[str, Any] = {}
+                changes[mirror_field] = event_time_iso[:10] if mirror_field == "sample_received_at" else event_time_iso
+                if stage == "in_progress" and operator:
+                    changes["operator_name"] = operator
+                _update_test_fields_locked(
+                    conn, test_id, changes, user_name=actor,
+                    reason=("автозакрытие предыдущего этапа" if auto_added else "зеркалирование из test_events"),
+                )
 
         conn.execute("COMMIT")
-        return event_id
+        return int(target_event_id)
     except Exception:
         conn.execute("ROLLBACK")
         raise

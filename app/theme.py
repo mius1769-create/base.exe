@@ -344,6 +344,24 @@ QFrame#headerFilterMenu QPushButton#filterOption[selected="true"] {{
     color: {ACCENT};
     font-weight: 600;
 }}
+QFrame#headerFilterMenu QCheckBox#filterOptionCheckbox {{
+    color: {TEXT_PRIMARY};
+    padding: 6px 4px;
+    background: transparent;
+    border: none;
+}}
+QFrame#headerFilterMenu QPushButton#filterApply {{
+    background: {ACCENT};
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 9px;
+    font-weight: 600;
+    margin-top: 2px;
+}}
+QFrame#headerFilterMenu QPushButton#filterApply:hover {{
+    background: #4338ca;
+}}
 QFrame#headerFilterMenu QFrame#filterClearDivider {{
     background: {BORDER};
     max-height: 1px;

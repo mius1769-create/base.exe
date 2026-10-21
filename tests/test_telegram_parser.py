@@ -16,12 +16,12 @@ from app import repository as repo
 from app import telegram_parser as tg
 
 
-SAMPLE_MESSAGE = """Заказ №1841848612
+SAMPLE_MESSAGE = """Заказ №1000000001
 
 1. FULL LINE - Y50+мтДНК в единой истории семьи: 14990 (1 x 14990) 8
 Заказ оплачен.
 Ozon
-Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon173015, Великий Новгород
+Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon000002, Великий Новгород
 ФИО: Тестовый Клиент Примерович
 Сумма платежа: 14990 RUB
 Код платежа: Банк Точка: ...
@@ -31,8 +31,8 @@ Email: kirill.n@example.com
 phone: +70000000000
 
 Дополнительная информация:
-Код заявки: 5241658:8584467492
-Код блока: rec1605680141
+Код заявки: 0000000:0000000001
+Код блока: rec0000000000
 Форма: Cart
 """
 
@@ -58,7 +58,7 @@ def conn(tmp_path):
 
 def test_parses_order_number():
     parsed = tg.parse_message_text(SAMPLE_MESSAGE)
-    assert parsed.order_no == "1841848612"
+    assert parsed.order_no == "1000000001"
 
 
 def test_parses_product_line_item():
@@ -89,7 +89,7 @@ def test_parses_delivery_method():
 def test_parses_delivery_address():
     parsed = tg.parse_message_text(SAMPLE_MESSAGE)
     assert "Великий Новгород" in parsed.delivery_address
-    assert "ПВЗ Ozon173015" in parsed.delivery_address
+    assert "ПВЗ Ozon000002" in parsed.delivery_address
 
 
 def test_parses_customer_name():
@@ -114,12 +114,12 @@ def test_parses_payment_code():
 
 def test_parses_request_code():
     parsed = tg.parse_message_text(SAMPLE_MESSAGE)
-    assert parsed.request_code == "5241658:8584467492"
+    assert parsed.request_code == "0000000:0000000001"
 
 
 def test_parses_block_code():
     parsed = tg.parse_message_text(SAMPLE_MESSAGE)
-    assert parsed.block_code == "rec1605680141"
+    assert parsed.block_code == "rec0000000000"
 
 
 def test_parses_form():
@@ -143,7 +143,7 @@ def test_full_line_message_creates_order_with_two_tests_not_full_line_type(conn)
     assert is_new is True
 
     order = conn.execute("SELECT * FROM orders WHERE order_id=?", (order_id,)).fetchone()
-    assert order["order_no"] == "1841848612"
+    assert order["order_no"] == "1000000001"
     assert order["customer_name"] == "Тестовый Клиент Примерович"
     assert order["needs_review"] == 0  # товар распознан, оплачен -> не требует проверки
     assert order["source"] == "Telegram"
@@ -185,7 +185,7 @@ def test_repeated_message_updates_existing_order_no_duplicate(conn):
     assert order_id_2 == order_id_1
 
     all_orders = conn.execute(
-        "SELECT * FROM orders WHERE order_no=?", ("1841848612",)
+        "SELECT * FROM orders WHERE order_no=?", ("1000000001",)
     ).fetchall()
     assert len(all_orders) == 1  # не создан дубль
 

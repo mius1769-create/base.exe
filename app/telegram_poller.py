@@ -19,12 +19,15 @@ from typing import Optional
 
 from PySide6.QtCore import QThread, Signal
 
+from . import app_logging
 from . import repository as repo
 from . import settings as st
 from . import telegram_client as tc
 from . import telegram_parser as tp
 
 SETTING_LAST_UPDATE_ID = "telegram_last_update_id"
+
+logger = app_logging.get_logger("telegram_poller")
 
 
 @dataclass
@@ -53,6 +56,8 @@ def process_update_batch(conn: sqlite3.Connection, updates: list[dict], *, user_
         result.processed += 1
         try:
             order_id, is_new = tp.create_or_update_order_from_message(conn, text, user_name=user_name)
+            if order_id is None:
+                continue  # сообщение не похоже на заказ — ничего не создано, пропускаем
             if is_new:
                 result.new_orders += 1
                 row = conn.execute("SELECT needs_review FROM orders WHERE order_id=?", (order_id,)).fetchone()
@@ -62,16 +67,29 @@ def process_update_batch(conn: sqlite3.Connection, updates: list[dict], *, user_
                 result.updated_orders += 1
         except Exception as exc:  # noqa: BLE001 — одно плохое сообщение не должно рушить приём остальных
             result.errors.append((update_id, str(exc)))
+            logger.exception("Ошибка обработки Telegram update_id=%s", update_id)
 
     return result
 
 
-def poll_once(conn: sqlite3.Connection, token: str, *, timeout: int = 25, user_name: str = "telegram-bot") -> BatchResult:
-    """Один цикл: взять сохранённый offset -> получить updates -> обработать -> сохранить новый offset."""
+def poll_once(conn: sqlite3.Connection, token: str, *, timeout: int = 8, user_name: str = "telegram-bot") -> BatchResult:
+    """Один цикл: взять сохранённый offset -> получить updates -> обработать -> сохранить новый offset.
+
+    timeout=8 (а не классические 25-30 для long-polling) НАМЕРЕННО: пока этот
+    вызов блокирует поток внутри get_updates(), TelegramPollerThread.run()
+    не проверяет request_stop() и не может прерваться. При закрытии окна
+    main_window.closeEvent() ждёт поток лишь ограниченное время (см. там же) —
+    более длинный timeout увеличивает риск, что при закрытии программы
+    именно в этот момент только что полученный (и, возможно, уже частично
+    записываемый в БД) заказ потеряется, т.к. процесс завершится раньше, чем
+    поток успеет дописать его на диск. Короткий timeout не теряет сообщения
+    (Telegram не забывает их, пока offset не сдвинут) — просто чаще опрашивает.
+    """
     last_id = st.get_setting(conn, SETTING_LAST_UPDATE_ID)
     offset = int(last_id) if last_id else None
+    proxy = st.get_telegram_proxy_config(conn)
 
-    updates = tc.get_updates(token, offset=offset, timeout=timeout)
+    updates = tc.get_updates(token, offset=offset, timeout=timeout, proxy=proxy)
     result = process_update_batch(conn, updates, user_name=user_name)
 
     if result.last_update_id is not None:
@@ -107,9 +125,11 @@ class TelegramPollerThread(QThread):
                     if result.processed:
                         self.batch_processed.emit(result)
                 except tc.TelegramAPIError as exc:
+                    logger.warning("Сетевая/API ошибка Telegram poller: %s", exc)
                     self.error_occurred.emit(str(exc))
                     time.sleep(10)  # не долбить API при ошибке (напр. неверный токен)
                 except Exception as exc:  # noqa: BLE001
+                    logger.exception("Неожиданная ошибка Telegram poller")
                     self.error_occurred.emit(f"Неожиданная ошибка приёма Telegram: {exc}")
                     time.sleep(10)
         finally:

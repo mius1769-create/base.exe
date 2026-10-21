@@ -30,3 +30,23 @@ def get_int_setting(conn: sqlite3.Connection, key: str, default: int) -> int:
         return int(val) if val is not None else default
     except ValueError:
         return default
+
+
+def get_telegram_proxy_config(conn: sqlite3.Connection):
+    """Собирает ProxyConfig из settings (тип/хост/порт — не секретны) и
+    secrets_store (логин/пароль — секретны) для telegram_client. Возвращает
+    None, если прокси явно не настроен (тогда клиент сам возьмёт системный
+    прокси/VPN — см. telegram_client._build_opener)."""
+    kind = get_setting(conn, "telegram_proxy_kind", "") or ""
+    if kind not in ("http", "socks5"):
+        return None
+    host = get_setting(conn, "telegram_proxy_host", "") or ""
+    port = get_int_setting(conn, "telegram_proxy_port", 0)
+    if not host or not port:
+        return None
+
+    from . import secrets_store
+    from .telegram_client import ProxyConfig
+
+    username, password = secrets_store.get_telegram_proxy_credentials()
+    return ProxyConfig(kind=kind, host=host, port=port, username=username, password=password)

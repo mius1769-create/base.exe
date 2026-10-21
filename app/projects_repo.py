@@ -170,7 +170,12 @@ def get_descendant_ids(conn: sqlite3.Connection, project_id: int) -> set[int]:
 
 
 def get_project_path(conn: sqlite3.Connection, project_id: Optional[int]) -> str:
-    """Хлебные крошки, напр. 'Этнопроекты › Башкирский проект'."""
+    """Хлебные крошки, напр. 'Этнопроекты › Башкирский проект'.
+
+    Для одиночного project_id. Если нужны пути для многих записей подряд
+    (напр. вся таблица вкладки «Гаплогруппы») — используйте
+    build_project_paths(), чтобы не делать по отдельному запросу к БД на
+    каждую строку."""
     if project_id is None:
         return ""
     rows = {r["id"]: r for r in conn.execute("SELECT id, parent_id, name FROM projects").fetchall()}
@@ -182,3 +187,31 @@ def get_project_path(conn: sqlite3.Connection, project_id: Optional[int]) -> str
         parts.append(cur["name"])
         cur = rows.get(cur["parent_id"]) if cur["parent_id"] is not None else None
     return " › ".join(reversed(parts))
+
+
+def build_project_paths(conn: sqlite3.Connection) -> dict[int, str]:
+    """Хлебные крошки для ВСЕХ проектов одним запросом к БД — используется
+    при построении списка/таблицы (напр. haplogroups_tab.refresh()), чтобы
+    не повторять запрос БД для каждой строки (N+1)."""
+    rows = {r["id"]: r for r in conn.execute("SELECT id, parent_id, name FROM projects").fetchall()}
+    paths: dict[int, str] = {}
+
+    def resolve(project_id: int, seen: set[int]) -> str:
+        if project_id in paths:
+            return paths[project_id]
+        row = rows.get(project_id)
+        if row is None or project_id in seen:
+            return ""
+        parts: list[str] = [row["name"]]
+        parent_id = row["parent_id"]
+        if parent_id is not None:
+            parent_path = resolve(parent_id, seen | {project_id})
+            if parent_path:
+                parts.insert(0, parent_path)
+        path = " › ".join(parts)
+        paths[project_id] = path
+        return path
+
+    for pid in rows:
+        resolve(pid, set())
+    return paths

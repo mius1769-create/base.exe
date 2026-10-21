@@ -349,13 +349,13 @@ def test_existing_order_and_event_flow_still_works(conn):
 
 def test_db_level_unique_constraint_on_test_number(conn):
     """UNIQUE(test_number) в схеме — вторая запись на тот же тест не проходит
-    даже в обход upsert_haplogroup(), напрямую через SQL."""
+    даже в обход upsert_haplogroup(), напрямую через SQL.
+
+    create_order_with_tests() уже создаёт строку haplogroups (INSERT OR
+    IGNORE) для каждого нового теста, так что первая строка тут не нужна —
+    достаточно попытаться вставить вторую поверх уже существующей."""
     gns = _make_test(conn)
     ts = repo.now_iso()
-    conn.execute(
-        "INSERT INTO haplogroups (test_number, created_at, updated_at) VALUES (?, ?, ?)",
-        (gns, ts, ts),
-    )
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
             "INSERT INTO haplogroups (test_number, created_at, updated_at) VALUES (?, ?, ?)",

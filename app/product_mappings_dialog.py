@@ -59,8 +59,16 @@ class ProductMappingsDialog(QDialog):
         self.types_list = QListWidget()
         self.types_list.setSelectionMode(QListWidget.MultiSelection)
         self.types_list.setMaximumHeight(140)
+        # Сервисные продукты (requires_lab=0, напр. REPORT) выбираются здесь
+        # наравне с лабораторными типами — товар сайта может целиком
+        # разворачиваться в один «Отчёт» (test_type_codes=["REPORT"]), и
+        # Telegram-заказ на него будет обработан (релиз 1.1.2). Это отдельно
+        # от чекбокса «Комплект включает услугу «Отчёт»» ниже — тот всегда
+        # остаётся надбавкой report_added к уже выбранным тестам (как для
+        # исходной записи «Отчёт» в DEFAULT_PRODUCT_MAPPINGS).
         for tt in repo.list_test_types(self.conn):
-            item = QListWidgetItem(f"{pcat.get_display_name(tt['code'])} ({tt['code']})")
+            price_part = f", {tt['price']:g} ₽" if tt["price"] else ""
+            item = QListWidgetItem(f"{pcat.get_display_name(tt['code'])} ({tt['code']}{price_part})")
             item.setData(1000, tt["code"])
             self.types_list.addItem(item)
         types_row.addWidget(self.types_list, stretch=1)

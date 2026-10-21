@@ -14,17 +14,18 @@ import sqlite3
 from datetime import date
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QLineEdit, QComboBox, QPushButton, QLabel, QHeaderView,
-    QAbstractItemView, QFrame, QSplitter, QGridLayout, QScrollArea,
+    QAbstractItemView, QFrame, QSplitter, QGridLayout, QScrollArea, QMessageBox,
 )
 
 from . import business_logic as bl
 from . import repository as repo
 from . import settings as st
 from . import product_catalog as pcat
+from . import projects_repo
 from . import ui_kit
 
 # Значения совпадают с ключами repository.QUICK_FILTERS — репозиторий не
@@ -84,7 +85,14 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         search_row = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Поиск по GNS, № заказа, ФИО, телефону/email, типу теста…")
-        self.search_edit.textChanged.connect(self.refresh)
+        # Debounce: полный refresh() (запрос в БД + пересборка всех виджетов
+        # таблицы) на каждое нажатие клавиши ощутимо тормозил — ждём паузу
+        # в наборе, а не дёргаем refresh() на каждый символ.
+        self._search_debounce = QTimer(self)
+        self._search_debounce.setSingleShot(True)
+        self._search_debounce.setInterval(250)
+        self._search_debounce.timeout.connect(self.refresh)
+        self.search_edit.textChanged.connect(self._search_debounce.start)
         search_row.addWidget(self.search_edit, stretch=2)
 
         self.filter_combo = QComboBox()
@@ -92,6 +100,11 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
             self.filter_combo.addItem(label, userData=code)
         self.filter_combo.currentIndexChanged.connect(self.refresh)
         search_row.addWidget(self.filter_combo, stretch=1)
+
+        self.project_combo = QComboBox()
+        self._reload_project_options()
+        self.project_combo.currentIndexChanged.connect(self.refresh)
+        search_row.addWidget(self.project_combo, stretch=1)
         root.addLayout(search_row)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -105,7 +118,9 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         header.setSectionsClickable(True)
         header.sectionClicked.connect(self._on_header_clicked)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        # ExtendedSelection — Shift/Ctrl-выделение нескольких строк для
+        # массового применения статуса (см. InternalCardWidget.show_bulk).
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
@@ -119,6 +134,15 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         root.addWidget(splitter, stretch=1)
 
     # ------------------------------------------------------------------
+    def _reload_project_options(self) -> None:
+        self.project_combo.blockSignals(True)
+        self.project_combo.clear()
+        self.project_combo.addItem("Все проекты", userData=None)
+        for p in projects_repo.list_projects(self.conn, include_archived=False):
+            self.project_combo.addItem(p["name"], userData=p["id"])
+        self.project_combo.blockSignals(False)
+
+    # ------------------------------------------------------------------
     # Фильтры в шапке таблицы (раздел v1.5 header_filters)
     # ------------------------------------------------------------------
     def _on_header_clicked(self, index: int) -> None:
@@ -130,7 +154,9 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         elif key == "test_type":
             self.open_header_filter(key, title, index, options=self._type_options)
         elif key == "internal_status":
-            self.open_header_filter(key, title, index, options=self._status_options)
+            # Мульти-select: можно выбрать сразу несколько статусов
+            # (напр. "В работе" + "Ожидаем получение").
+            self.open_header_filter(key, title, index, options=self._status_options, multi=True)
         elif key == "deadline_date":
             self.open_header_filter(key, title, index, options=ui_kit.DEADLINE_BUCKET_OPTIONS)
 
@@ -158,7 +184,8 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         if hf.get("test_type"):
             out = [e for e in out if e["row"]["test_type"] == hf["test_type"]]
         if hf.get("internal_status"):
-            out = [e for e in out if e["status_label"] == hf["internal_status"]]
+            # multi=True — значение это список выбранных статусов, проверяем вхождение
+            out = [e for e in out if e["status_label"] in hf["internal_status"]]
         if hf.get("deadline_date"):
             bucket = hf["deadline_date"]
             out = [e for e in out if ui_kit.deadline_bucket(e["deadline_date"], today) == bucket]
@@ -168,7 +195,10 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
     def refresh(self, *, keep_selection_test_id: Optional[int] = None) -> None:
         search = self.search_edit.text().strip() or None
         quick_filter = self.filter_combo.currentData() or "all"
-        rows = repo.list_tests_with_order(self.conn, search=search, quick_filter=quick_filter)
+        project_id = self.project_combo.currentData()
+        rows = repo.list_tests_with_order(
+            self.conn, search=search, quick_filter=quick_filter, project_id=project_id, lab_only=True
+        )
 
         test_ids = [r["test_id"] for r in rows]
         events_by_test = repo.list_events_for_test_ids(self.conn, test_ids)
@@ -256,16 +286,22 @@ class InternalTabWidget(QWidget, ui_kit.HeaderFilterMixin):
         self.card.show_test(test_id)
 
     def _on_row_selected(self) -> None:
-        items = self.table.selectedItems()
-        if not items:
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
             self.card.clear()
             return
-        row_idx = items[0].row()
-        gns_item = self.table.item(row_idx, 1)
-        if gns_item is None:
+        test_ids = []
+        for row_idx in rows:
+            gns_item = self.table.item(row_idx, 1)
+            if gns_item is not None:
+                test_ids.append(gns_item.data(Qt.UserRole))
+        if not test_ids:
+            self.card.clear()
             return
-        test_id = gns_item.data(Qt.UserRole)
-        self.card.show_test(test_id)
+        if len(test_ids) == 1:
+            self.card.show_test(test_ids[0])
+        else:
+            self.card.show_bulk(test_ids)
 
 
 # ---------------------------------------------------------------------
@@ -309,6 +345,7 @@ class InternalCardWidget(QFrame):
         self.setObjectName("cardPanel")
         self._test_id: Optional[int] = None
         self._order_id: Optional[int] = None
+        self._bulk_test_ids: Optional[list[int]] = None
         self._action_in_flight = False
         self._build_ui()
 
@@ -378,7 +415,8 @@ class InternalCardWidget(QFrame):
 
         # --- заказ · управление (только просмотр — редактирование через
         # существующий диалог TestEditDialog, repository.py не дублируем) ---
-        layout.addWidget(_section_title("Заказ · управление"))
+        self.order_section_title = _section_title("Заказ · управление")
+        layout.addWidget(self.order_section_title)
         self.order_box = _info_box()
         order_lay = QVBoxLayout(self.order_box)
         order_lay.setContentsMargins(12, 10, 12, 10)
@@ -412,7 +450,8 @@ class InternalCardWidget(QFrame):
         layout.addWidget(self.sibling_box)
 
         # --- маршрут теста (таймлайн) ---
-        layout.addWidget(_section_title("Маршрут теста"))
+        self.timeline_section_title = _section_title("Маршрут теста")
+        layout.addWidget(self.timeline_section_title)
         self.timeline_container = QVBoxLayout()
         layout.addLayout(self.timeline_container)
         self._timeline_widget: Optional[ui_kit.TestTimelineWidget] = None
@@ -425,7 +464,8 @@ class InternalCardWidget(QFrame):
         self._action_buttons: list[QPushButton] = []
 
         # --- внутренний комментарий ---
-        layout.addWidget(_section_title("Комментарий"))
+        self.comment_section_title = _section_title("Комментарий")
+        layout.addWidget(self.comment_section_title)
         self.comment_block = QLabel("")
         self.comment_block.setWordWrap(True)
         layout.addWidget(self.comment_block)
@@ -435,7 +475,10 @@ class InternalCardWidget(QFrame):
     def clear(self) -> None:
         self._test_id = None
         self._order_id = None
+        self._bulk_test_ids = None
+        self._restore_single_test_sections()
         self.header_label.setText("Выберите тест в списке слева")
+        self.sub_label.setText("Операторская карточка")
         self._clear_layout(self.badge_slot)
         self.status_pill.setVisible(False)
         self.deadline_big.setText("")
@@ -450,6 +493,18 @@ class InternalCardWidget(QFrame):
         self.edit_button.setEnabled(False)
         self.history_button.setEnabled(False)
         self._clear_action_buttons()
+
+    def _restore_single_test_sections(self) -> None:
+        """Отменяет скрытие секций, сделанное show_bulk() — вызывать перед
+        show_test()/clear(), чтобы после массового режима карточка снова
+        показывала обычный одиночный вид."""
+        self.deadline_box.setVisible(True)
+        self.client_box.setVisible(True)
+        self.order_section_title.setVisible(True)
+        self.order_box.setVisible(True)
+        self.timeline_section_title.setVisible(True)
+        self.comment_section_title.setVisible(True)
+        self.comment_block.setVisible(True)
 
     @staticmethod
     def _clear_layout(layout) -> None:
@@ -496,6 +551,8 @@ class InternalCardWidget(QFrame):
             self.clear()
             return
 
+        self._bulk_test_ids = None
+        self._restore_single_test_sections()
         self._test_id = test_id
         self._order_id = row["order_id"]
         self.edit_button.setEnabled(True)
@@ -582,6 +639,133 @@ class InternalCardWidget(QFrame):
         self.updateGeometry()
         self.update()
 
+    def show_bulk(self, test_ids: list[int]) -> None:
+        """Массовый режим карточки — несколько строк выделены Shift/Ctrl в
+        таблице. Показывает только заголовок и кнопки статусов; клик по
+        кнопке спрашивает подтверждение и применяет событие ко всем
+        выделенным тестам разом (см. _on_bulk_action). Отмена заказа сюда
+        сознательно не входит — только полноценные статусы конвейера."""
+        self._test_id = None
+        self._order_id = None
+        self._bulk_test_ids = list(test_ids)
+
+        self._clear_layout(self.badge_slot)
+        self.header_label.setText(f"Выбрано тестов: {len(test_ids)}")
+        self.sub_label.setText("Массовое действие — применится ко всем выделенным")
+        self.status_pill.setVisible(False)
+
+        self.deadline_big.setText("")
+        self.deadline_note.setText("")
+        self.deadline_box.setVisible(False)
+        self.client_text.setText("")
+        self.client_box.setVisible(False)
+
+        self._clear_grid(self.order_fields_grid)
+        self.order_section_title.setVisible(False)
+        self.order_box.setVisible(False)
+        self.edit_button.setEnabled(False)
+        self.history_button.setEnabled(False)
+
+        self._clear_layout(self.sibling_layout)
+        self.sibling_box.setVisible(False)
+        self.siblings_title.setVisible(False)
+
+        self.timeline_section_title.setVisible(False)
+        self._set_timeline(None)
+
+        self.comment_section_title.setVisible(False)
+        self.comment_block.setVisible(False)
+        self.comment_block.setText("")
+
+        self._build_bulk_action_buttons()
+
+        self.layout().invalidate()
+        self.layout().activate()
+        self.updateGeometry()
+        self.update()
+
+    def _build_bulk_action_buttons(self) -> None:
+        self._clear_action_buttons()
+        col = 0
+        row_idx = 0
+        for event_type, label in bl.ACTION_BUTTON_LABELS.items():
+            btn = QPushButton(label)
+            btn.setMinimumHeight(34)
+            btn.clicked.connect(
+                lambda checked=False, e=event_type: self._on_bulk_action(e)
+            )
+            self.actions_grid.addWidget(btn, row_idx, col)
+            self._action_buttons.append(btn)
+            col += 1
+            if col >= 2:
+                col = 0
+                row_idx += 1
+
+    def _on_bulk_action(self, event_type: str) -> None:
+        if not self._bulk_test_ids or self._action_in_flight:
+            return
+        test_ids = self._bulk_test_ids
+
+        # Честный подсчёт: пропускаем тех, кто уже прошёл этот этап или
+        # отменён — так же, как одиночная кнопка не трогает уже пройденные
+        # этапы (идемпотентность record_event()).
+        affected = []
+        for tid in test_ids:
+            events = repo.list_events_for_test(self.conn, tid)
+            present = {e["event_type"] for e in events}
+            if event_type in present or "cancelled" in present:
+                continue
+            affected.append(tid)
+
+        label = bl.ACTION_BUTTON_LABELS[event_type]
+        if not affected:
+            QMessageBox.information(
+                self, "Массовое действие",
+                f"«{label}» уже применено (или тест отменён) у всех "
+                f"{len(test_ids)} выделенных тестов — менять нечего.",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self, "Подтверждение массового действия",
+            f"Применить «{label}» к {len(affected)} из {len(test_ids)} "
+            f"выделенных тестов?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._action_in_flight = True
+        failed: list[tuple[int, str]] = []
+        try:
+            operator = st.get_setting(self.conn, "current_operator_name", "") or "оператор"
+            for tid in affected:
+                try:
+                    # backfill, а не record_event() напрямую — иначе
+                    # пропущенные промежуточные этапы (напр. "Получен" при
+                    # массовой выдаче "Выдано клиенту") оставляют внутреннюю
+                    # логику в противоречивом состоянии (см. docstring функции).
+                    repo.record_event_with_backfill(self.conn, tid, event_type, operator=operator, user_name=operator)
+                except Exception as exc:  # noqa: BLE001 — одна сбойная запись не должна обрывать весь батч
+                    failed.append((tid, str(exc)))
+        finally:
+            self._action_in_flight = False
+
+        # ВАЖНО: синхронизация вызывается всегда, даже если часть тестов не
+        # обработалась — иначе успешно применённые статусы тоже не попадут
+        # в список/карточку до следующего ручного refresh() (баг-репорт:
+        # "не проставились все пропущенные статусы, подвисает").
+        self.tab.main_window.on_bulk_event_saved(affected)
+
+        if failed:
+            details = "\n".join(f"• test_id={tid}: {err}" for tid, err in failed[:10])
+            more = f"\n…и ещё {len(failed) - 10}" if len(failed) > 10 else ""
+            QMessageBox.warning(
+                self, "Массовое действие выполнено частично",
+                f"«{label}» не удалось применить к {len(failed)} из {len(affected)} тестов:\n"
+                f"{details}{more}\n\nОстальные тесты обновлены. Попробуйте повторить для неудачных.",
+            )
+
     @staticmethod
     def _build_timeline_steps(events) -> list[dict]:
         present = {e["event_type"]: e for e in events}
@@ -617,14 +801,18 @@ class InternalCardWidget(QFrame):
         col = 0
         row_idx = 0
         for et in bl.EVENT_ORDER:
-            if et == "order_created":
-                continue  # уже произошло при создании, кнопка не нужна
+            if et in ("order_created", "cancelled"):
+                # order_created — уже произошло при создании, кнопка не нужна;
+                # cancelled — не шаг обычного конвейера, для неё отдельная
+                # кнопка «Отменить заказ» ниже, со своим условием доступности.
+                continue
             btn = QPushButton()
             btn.setMinimumHeight(34)
             if et in present:
                 btn.setText(f"✓ {bl.EVENT_LABELS_INTERNAL[et]}")
-                btn.setEnabled(False)
                 btn.setObjectName("actionDone")
+                btn.setToolTip("Клик — откатить статус до этого этапа (все последующие будут удалены)")
+                btn.clicked.connect(lambda checked=False, e=et: self._on_revert_to_stage(e))
             elif et == next_et:
                 btn.setText(bl.ACTION_BUTTON_LABELS[et])
                 btn.setObjectName("actionPrimary")
@@ -638,6 +826,23 @@ class InternalCardWidget(QFrame):
             if col >= 2:
                 col = 0
                 row_idx += 1
+
+        cancel_btn = QPushButton()
+        cancel_btn.setMinimumHeight(34)
+        if "cancelled" in present:
+            cancel_btn.setText("Восстановить заказ")
+            cancel_btn.clicked.connect(self._on_uncancel)
+        elif "issued" in present:
+            # заказ уже выдан клиенту — отменить его нельзя
+            cancel_btn.setText("Отменить заказ")
+            cancel_btn.setEnabled(False)
+        else:
+            cancel_btn.setText("Отменить заказ")
+            cancel_btn.clicked.connect(
+                lambda checked=False, b=cancel_btn: self._on_quick_action("cancelled", b)
+            )
+        self.actions_grid.addWidget(cancel_btn, row_idx, col)
+        self._action_buttons.append(cancel_btn)
 
     def _on_quick_action(self, event_type: str, button: QPushButton) -> None:
         """
@@ -661,6 +866,76 @@ class InternalCardWidget(QFrame):
             repo.record_event(self.conn, self._test_id, event_type, operator=operator, user_name=operator)
             # единая точка синхронизации: обновляет обе вкладки + карточку + строку списка
             self.tab.main_window.on_event_saved(self._test_id)
+        except Exception as exc:
+            # Раньше исключение (напр. "database is locked" при конкурентной
+            # записи из Telegram-потока) просто пробрасывалось наружу —
+            # кнопка так и оставалась висеть с текстом "Сохраняем…" навсегда,
+            # без единого сообщения оператору (баг-репорт: "подвисает...
+            # пишет Сохраняем и всё"). Показываем ошибку и перестраиваем
+            # карточку по актуальному состоянию БД вместо зависшей кнопки.
+            QMessageBox.critical(
+                self, "Не удалось сохранить",
+                f"Действие «{bl.ACTION_BUTTON_LABELS.get(event_type, event_type)}» не выполнено:\n{exc}\n\n"
+                "Попробуйте ещё раз через несколько секунд.",
+            )
+            if self._test_id is not None:
+                self.show_test(self._test_id)
+        finally:
+            self._action_in_flight = False
+
+    def _on_revert_to_stage(self, target_stage: str) -> None:
+        """Клик по уже пройденному этапу («✓ ...») в карточке — откат
+        ошибочно проставленного более позднего статуса обратно к этому
+        этапу (см. repo.revert_to_stage)."""
+        if self._test_id is None or self._action_in_flight:
+            return
+        label = bl.EVENT_LABELS_INTERNAL[target_stage]
+        reply = QMessageBox.question(
+            self, "Откат статуса",
+            f"Откатить статус теста до «{label}»?\n"
+            "Все более поздние этапы (и их даты) будут удалены — они "
+            "останутся видны в истории изменений, но статус и таймлайн "
+            "вернутся к этому этапу.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._action_in_flight = True
+        try:
+            operator = st.get_setting(self.conn, "current_operator_name", "") or "оператор"
+            repo.revert_to_stage(
+                self.conn, self._test_id, target_stage,
+                user_name=operator, reason="ручной откат ошибочно проставленного статуса",
+            )
+            self.tab.main_window.on_event_saved(self._test_id)
+        except Exception as exc:
+            QMessageBox.critical(self, "Не удалось откатить статус", str(exc))
+            if self._test_id is not None:
+                self.show_test(self._test_id)
+        finally:
+            self._action_in_flight = False
+
+    def _on_uncancel(self) -> None:
+        if self._test_id is None or self._action_in_flight:
+            return
+        reply = QMessageBox.question(
+            self, "Восстановление заказа",
+            "Отменить отмену этого заказа и вернуть его в обычный процесс?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._action_in_flight = True
+        try:
+            operator = st.get_setting(self.conn, "current_operator_name", "") or "оператор"
+            repo.uncancel_test(self.conn, self._test_id, user_name=operator)
+            self.tab.main_window.on_event_saved(self._test_id)
+        except Exception as exc:
+            QMessageBox.critical(self, "Не удалось восстановить заказ", str(exc))
+            if self._test_id is not None:
+                self.show_test(self._test_id)
         finally:
             self._action_in_flight = False
 

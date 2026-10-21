@@ -38,3 +38,9 @@ venv/
 *.spec.bak
 .DS_Store
 Thumbs.db
+
+# Google API: токены и ключи OAuth, логи синхронизации
+token.json
+credentials*.json
+logs/
+*.log

@@ -36,10 +36,25 @@ def get_db_path() -> Path:
 def connect(db_path: "Path | str | None" = None) -> sqlite3.Connection:
     path = Path(db_path) if db_path is not None else get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), isolation_level=None)  # autocommit off, we control BEGIN
+    # timeout=15 (дефолт sqlite3 — 5с): при БД, открытой сразу двумя
+    # соединениями с разных потоков (см. telegram_poller.py — свой отдельный
+    # sqlite3.connect() на тот же файл), второй писатель в WAL-режиме ждёт
+    # освобождения блокировки, а не падает сразу. 5с дефолта на медленной
+    # машине под нагрузкой оказывалось мало — операция в UI повисала с
+    # "database is locked", которая раньше нигде не показывалась пользователю
+    # (см. try/except в internal_tab.py).
+    conn = sqlite3.connect(str(path), isolation_level=None, timeout=15)  # autocommit off, we control BEGIN
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
+    # synchronous=FULL (дефолт) делает fsync на каждый COMMIT — при частых
+    # мелких транзакциях (запись событий по одному тесту, миграции) это
+    # ощутимо тормозит. NORMAL с WAL по-прежнему не повреждает базу при
+    # падении приложения, риск — потеря последних не зафиксированных на
+    # диск транзакций именно при потере питания/крахе ОС.
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA temp_store = MEMORY;")
+    conn.execute("PRAGMA cache_size = -64000;")  # ~64 МБ кэша страниц
     return conn
 
 
@@ -59,7 +74,10 @@ CREATE TABLE IF NOT EXISTS test_types (
     report_allowed INTEGER NOT NULL DEFAULT 1,  -- 0/1
     report_extra_days INTEGER NOT NULL DEFAULT 15,
     is_active INTEGER NOT NULL DEFAULT 1,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    price REAL NOT NULL DEFAULT 0,
+    cost_price REAL NOT NULL DEFAULT 0,
+    requires_lab INTEGER NOT NULL DEFAULT 1
 );
 
 -- Маппинг коммерческих названий (сайт/Ozon/старые названия) -> набор внутренних типов теста.
@@ -200,7 +218,7 @@ CREATE TABLE IF NOT EXISTS legacy_excluded_tests (
 CREATE TABLE IF NOT EXISTS test_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     test_id INTEGER NOT NULL REFERENCES tests(test_id),
-    event_type TEXT NOT NULL,        -- order_created/dispatched/received/handed_to_lab/profile_received/in_progress/issued
+    event_type TEXT NOT NULL,        -- order_created/cancelled/dispatched/received/handed_to_lab/profile_received/in_progress/issued
     event_time TEXT NOT NULL,        -- ISO datetime, может быть скорректировано вручную
     is_manual_correction INTEGER NOT NULL DEFAULT 0,
     recorded_by TEXT,                -- оператор/логин, кто зафиксировал
@@ -290,14 +308,15 @@ DEFAULT_PROJECTS = [
 ]
 
 DEFAULT_TEST_TYPES = [
-    # code,        display_name,        base_days, report_allowed, report_extra_days, sort
-    ("Y50", "Y Базовый (Y50)", 30, 1, 15, 10),
-    ("Y37", "Y Base (Y37)", 30, 1, 15, 20),
-    ("MTDNA", "мтДНК", 30, 1, 15, 30),
-    ("MITOGENOME", "Митогеном", 30, 1, 15, 40),
-    ("STRELKA", "STRELKA", 45, 1, 15, 50),
-    ("WGS15", "WGS 15X", 60, 0, 0, 60),
-    ("WGS30", "WGS 30X", 60, 0, 0, 70),
+    # code, display_name, base_days, report_allowed, report_extra_days, sort, price, cost_price, requires_lab
+    ("Y50", "Y Базовый (Y50)", 30, 1, 15, 10, 0, 0, 1),
+    ("Y37", "Y Base (Y37)", 30, 1, 15, 20, 0, 0, 1),
+    ("MTDNA", "мтДНК", 30, 1, 15, 30, 0, 0, 1),
+    ("MITOGENOME", "Митогеном", 30, 1, 15, 40, 0, 0, 1),
+    ("STRELKA", "STRELKA", 45, 1, 15, 50, 0, 0, 1),
+    ("WGS15", "WGS 15X", 60, 0, 0, 60, 0, 0, 1),
+    ("WGS30", "WGS 30X", 60, 0, 0, 70, 0, 0, 1),
+    ("REPORT", "Отчёт", 0, 0, 0, 80, 0, 0, 0),
 ]
 
 DEFAULT_DELIVERY_METHODS = ["Ozon", "Почта России", "Курьер", "Яндекс", "СДЭК"]
@@ -332,8 +351,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         if cur.fetchone()["c"] == 0:
             conn.executemany(
                 """INSERT INTO test_types
-                   (code, display_name, base_deadline_days, report_allowed, report_extra_days, sort_order)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (code, display_name, base_deadline_days, report_allowed, report_extra_days, sort_order, price, cost_price, requires_lab)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 DEFAULT_TEST_TYPES,
             )
 
@@ -373,8 +392,30 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ROLLBACK")
         raise
 
+    _migrate_test_type_product_fields(conn)
     _dedupe_test_events_and_create_unique_index(conn)
 
+
+
+def _migrate_test_type_product_fields(conn: sqlite3.Connection) -> None:
+    """Идемпотентная миграция справочника продуктов для существующих БД."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(test_types)")}
+    for name, ddl in (("price", "REAL NOT NULL DEFAULT 0"),
+                      ("cost_price", "REAL NOT NULL DEFAULT 0"),
+                      ("requires_lab", "INTEGER NOT NULL DEFAULT 1")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE test_types ADD COLUMN {name} {ddl}")
+    # REPORT — сервис. Если он уже был создан старой версией, исправляем только признак.
+    conn.execute("UPDATE test_types SET requires_lab = 0 WHERE code = 'REPORT'")
+    # На старой БД добавляем REPORT один раз. Маркер не даёт воскрешать его после намеренного удаления.
+    marker = conn.execute("SELECT value FROM settings WHERE key='migration_report_product_seeded'").fetchone()
+    if marker is None:
+        conn.execute(
+            """INSERT OR IGNORE INTO test_types
+               (code, display_name, base_deadline_days, report_allowed, report_extra_days, is_active, sort_order, price, cost_price, requires_lab)
+               VALUES ('REPORT','Отчёт',0,0,0,1,80,0,0,0)"""
+        )
+        conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES ('migration_report_product_seeded','1')")
 
 def _dedupe_test_events_and_create_unique_index(conn: sqlite3.Connection) -> None:
     """

@@ -5,6 +5,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from . import app_logging
 from . import db as dbmod
 from . import repository as repo
 from . import theme
@@ -12,6 +13,8 @@ from .main_window import MainWindow
 
 
 def main() -> int:
+    app_logging.setup_logging()
+
     app = QApplication(sys.argv)
     app.setApplicationName("GENOPOISK CRM")
     app.setOrganizationName("GENOPOISK")

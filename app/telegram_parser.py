@@ -11,12 +11,12 @@ GENOPOISK CRM — парсер сообщений Telegram-бота об опл�
 
 Формат сообщения (предоставлен пользователем, пример):
 
-    Заказ №1841848612
+    Заказ №1000000001
 
     1. FULL LINE - Y50+мтДНК в единой истории семьи: 14990 (1 x 14990) 8
     Заказ оплачен.
     Ozon
-    Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon173015, Великий Новгород
+    Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon000002, Великий Новгород
     ФИО: Тестовый Клиент Примерович
     Сумма платежа: 14990 RUB
     Код платежа: Банк Точка: ...
@@ -26,8 +26,8 @@ GENOPOISK CRM — парсер сообщений Telegram-бота об опл�
     phone: +70000000000
 
     Дополнительная информация:
-    Код заявки: 5241658:8584467492
-    Код блока: rec1605680141
+    Код заявки: 0000000:0000000001
+    Код блока: rec0000000000
     Форма: Cart
 
 Правила:
@@ -76,12 +76,13 @@ class ParsedOrderMessage:
     request_code: Optional[str] = None
     block_code: Optional[str] = None
     form_data: Optional[str] = None
+    comment: Optional[str] = None
     raw_text: str = ""
 
 
 # Известные способы доставки — строка сообщения, точно совпадающая с одним из них
 # (после строки товара / статуса оплаты), распознаётся как способ доставки.
-KNOWN_DELIVERY_METHODS = ["Ozon", "Почта России", "Курьер", "Яндекс", "СДЭК"]
+KNOWN_DELIVERY_METHODS = ["Ozon", "Почта России", "Курьер", "Яндекс", "СДЭК", "Самовывоз"]
 
 _LINE_ITEM_RE = re.compile(
     r"^\s*\d+\.\s*(?P<name>.+?):\s*(?P<amount>[\d\s]+(?:[.,]\d+)?)\s*"
@@ -100,6 +101,7 @@ _FIELD_PATTERNS = {
     "request_code": r"Код\s+заявки[:\s]+([^\n]+)",
     "block_code": r"Код\s+блока[:\s]+([^\n]+)",
     "form_data": r"Форма[:\s]+([^\n]+)",
+    "comment": r"Комментарий[:\s]+([^\n]+)",
 }
 
 
@@ -179,11 +181,13 @@ def resolve_products_from_text(conn: sqlite3.Connection, text: str) -> tuple[lis
     unresolved: list[str] = []
 
     for name in line_names:
-        match = next((m for m in mappings if m[0].strip().lower() == name.strip().lower()), None)
+        name_norm = name.strip().lower()
+        match = next((m for m in mappings if m[0].strip().lower() == name_norm), None)
         if match is None:
-            # запасной вариант: частичное совпадение (напр. лишние пробелы/регистр в реальных данных)
-            match = next((m for m in mappings if m[0].strip().lower() in name.strip().lower()
-                          or name.strip().lower() in m[0].strip().lower()), None)
+            # запасной вариант: commercial_name встречается как подстрока в
+            # названии строки товара (напр. "Y Premium Y-50" внутри более
+            # длинного варианта с описанием) — регистронезависимо.
+            match = next((m for m in mappings if m[0].strip().lower() in name_norm), None)
         if match is None:
             unresolved.append(name)
             continue
@@ -205,7 +209,7 @@ def create_or_update_order_from_message(
     text: str,
     *,
     user_name: str = "telegram-bot",
-) -> tuple[int, bool]:
+) -> tuple[Optional[int], bool]:
     """
     Главная точка входа парсера. Возвращает (order_id, is_new_order).
 
@@ -216,11 +220,23 @@ def create_or_update_order_from_message(
     - Бот присылает уже оплаченные заказы (раздел 0); если сообщение почему-то
       неоплачено, заказ всё равно создаётся, но также уходит needs_review=True,
       чтобы оператор не пропустил аномалию.
+    - Если в сообщении вообще нет ни одного признака заказа (номер, ФИО,
+      товар, сумма) — заказ НЕ создаётся вообще, возвращается (None, False).
+      Это отсекает обычную переписку в чате (см. проверку ниже).
     """
     parsed = parse_message_text(text)
     codes, includes_report, unresolved = resolve_products_from_text(conn, text)
 
     existing = find_order_by_order_no(conn, parsed.order_no) if parsed.order_no else None
+
+    # Сообщение вообще не похоже на заказ (нет номера заказа, нет ФИО, ни один
+    # товар не распознан, сумма не найдена) — это, скорее всего, обычное
+    # сообщение в чате (вопрос, комментарий, репост и т.п.), а не заказ.
+    # Ничего не создаём, чтобы не засорять CRM пустыми "заготовками" —
+    # раньше на каждое такое сообщение создавался пустой order с
+    # needs_review=True, что портило статистику (средний чек, число заказов).
+    if not existing and not parsed.order_no and not parsed.customer_name and not codes and not parsed.amount:
+        return None, False
 
     if existing:
         repo.write_audit(
@@ -260,7 +276,8 @@ def create_or_update_order_from_message(
 #      polling/webhook по Bot API) — токен читать ТОЛЬКО через
 #      app.secrets_store.get_telegram_bot_token(), никогда не хардкодить.
 #   2. На каждое входящее сообщение вызывать create_or_update_order_from_message.
-#   3. Заполнить product_mappings реальным списком коммерческих названий с сайта
-#      (раздел 28) — сейчас есть только пример "FULL LINE - Y50+мтДНК ..." из
-#      сообщения, предоставленного пользователем для тестирования парсера.
+#   3. product_mappings реальным списком коммерческих названий с сайта —
+#      готово (см. DEFAULT_PRODUCT_MAPPINGS в app/db.py, INSERT OR IGNORE
+#      при init_db); дополнять новыми названиями можно через
+#      ProductMappingsDialog в UI без правки кода.
 # ---------------------------------------------------------------------

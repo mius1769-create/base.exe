@@ -18,13 +18,16 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QMessageBox, QToolBar, QStatusBar, QFileDialog,
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QStyle,
 )
 
+from . import business_logic as bl
+from . import repository as repo
 from . import settings as st
 from .client_tab import ClientTabWidget
 from .internal_tab import InternalTabWidget
 from .haplogroups_tab import HaplogroupsTabWidget
+from .dashboard_tab import DashboardTabWidget
 from .new_order_dialog import NewOrderDialog
 from .settings_dialog import SettingsDialog
 from .backup_dialog import BackupDialog
@@ -47,7 +50,12 @@ class MainWindow(QMainWindow):
 
         self._backup_timer = QTimer(self)
         self._backup_timer.timeout.connect(self._maybe_auto_backup)
+        self._backup_timer.timeout.connect(self._maybe_show_deadline_digest)
         self._backup_timer.start(60_000)
+
+        # Не ждём первого тика таймера (60с) для сводки по дедлайнам —
+        # оператор должен увидеть её сразу при открытии, а не через минуту.
+        QTimer.singleShot(300, self._maybe_show_deadline_digest)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -76,6 +84,14 @@ class MainWindow(QMainWindow):
         act_products.triggered.connect(self.on_product_mappings)
         tb.addAction(act_products)
 
+        act_review = QAction("Заказы: требуют проверки", self)
+        act_review.setToolTip(
+            "Заказы из Telegram с нераспознанным товаром — созданы без тестов "
+            "и не показываются в обычных вкладках, пока тип теста не определён вручную."
+        )
+        act_review.triggered.connect(self.on_needs_review)
+        tb.addAction(act_review)
+
         act_backup = QAction("Резервные копии", self)
         act_backup.triggered.connect(self.on_backup)
         tb.addAction(act_backup)
@@ -84,6 +100,21 @@ class MainWindow(QMainWindow):
         act_settings.triggered.connect(self.on_settings)
         tb.addAction(act_settings)
 
+        tb.addSeparator()
+
+        act_save = QAction(self.style().standardIcon(QStyle.SP_DialogSaveButton), "Сохранить", self)
+        act_save.setToolTip(
+            "Принудительно сбросить все изменения на диск (WAL-checkpoint) — "
+            "нажимайте перед закрытием программы или копированием файла базы."
+        )
+        act_save.triggered.connect(self.on_save_now)
+        tb.addAction(act_save)
+
+        act_refresh = QAction(self.style().standardIcon(QStyle.SP_BrowserReload), "Обновить", self)
+        act_refresh.setToolTip("Обновить данные во всех вкладках (Дашборд / Клиентская / Внутренняя работа / Гаплогруппы)")
+        act_refresh.triggered.connect(self.on_refresh_now)
+        tb.addAction(act_refresh)
+
     def _build_tabs(self) -> None:
         # Футер строится ДО вкладок: конструктор *TabWidget сразу вызывает
         # refresh(), а тот обращается к self.footer_count_label — иначе
@@ -91,9 +122,11 @@ class MainWindow(QMainWindow):
         footer = self._build_footer_bar()
 
         self.tabs = QTabWidget()
+        self.dashboard_tab = DashboardTabWidget(self.conn, self)
         self.client_tab = ClientTabWidget(self.conn, self)
         self.internal_tab = InternalTabWidget(self.conn, self)
         self.haplogroups_tab = HaplogroupsTabWidget(self.conn, self)
+        self.tabs.addTab(self.dashboard_tab, "Дашборд")
         self.tabs.addTab(self.client_tab, "Клиентская")
         self.tabs.addTab(self.internal_tab, "Внутренняя работа")
         self.tabs.addTab(self.haplogroups_tab, "Гаплогруппы")
@@ -132,13 +165,16 @@ class MainWindow(QMainWindow):
         # при переключении вкладки данные могли устареть (правки во внутренней
         # вкладке должны быть видны, если тут же переключиться на клиентскую)
         if index == 0:
-            self.client_tab.refresh()
+            self.dashboard_tab.refresh()
         elif index == 1:
+            self.client_tab.refresh()
+        elif index == 2:
             self.internal_tab.refresh()
         else:
             self.haplogroups_tab.refresh()
 
     def refresh_all(self) -> None:
+        self.dashboard_tab.refresh()
         self.client_tab.refresh()
         self.internal_tab.refresh()
         self.haplogroups_tab.refresh()
@@ -156,6 +192,16 @@ class MainWindow(QMainWindow):
         """
         self.internal_tab.refresh(keep_selection_test_id=test_id)
         self.client_tab.refresh(keep_selection_test_id=test_id)
+
+    def on_bulk_event_saved(self, test_ids: list[int]) -> None:
+        """Та же точка синхронизации, что и on_event_saved(), но для
+        массового действия сразу над несколькими тестами (см.
+        InternalCardWidget._on_bulk_action). Выделение конкретной строки
+        после массового действия не сохраняем — Qt и так сбрасывает его при
+        полной пересборке таблицы, а несколько одновременно "сохранённых"
+        test_id уже не про одну карточку."""
+        self.internal_tab.refresh()
+        self.client_tab.refresh()
 
     # ------------------------------------------------------------------
     # Toolbar actions
@@ -193,6 +239,12 @@ class MainWindow(QMainWindow):
         dlg = ProductMappingsDialog(self.conn, self)
         dlg.exec()
 
+    def on_needs_review(self) -> None:
+        from .needs_review_dialog import NeedsReviewDialog
+        dlg = NeedsReviewDialog(self.conn, self)
+        dlg.exec()
+        self.refresh_all()
+
     def on_backup(self) -> None:
         dlg = BackupDialog(self.conn, self)
         dlg.exec()
@@ -202,6 +254,32 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self.refresh_all()
             self._maybe_start_telegram_polling()
+
+    def on_save_now(self) -> None:
+        """
+        Кнопка «Сохранить» (дискетка). Каждое изменение в БД и так пишется
+        транзакцией сразу (repository.py: BEGIN IMMEDIATE/COMMIT на каждую
+        операцию) — потерять данные при обычном закрытии программы нельзя.
+        Но при журналировании WAL (см. db.connect: PRAGMA journal_mode=WAL)
+        часть уже закоммиченных изменений может физически лежать в файле
+        -wal рядом с основной базой, а не в самом .db — это безопасно для
+        самого приложения, но мешает, если файл базы копируют/бэкапят
+        вручную снаружи, пока приложение открыто. WAL-checkpoint сбрасывает
+        всё гарантированно в сам .db файл — это и есть "сохранение перед
+        закрытием базы" из требования.
+        """
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(FULL)")
+            self.statusBar().showMessage("Данные сохранены на диск", 4000)
+        except sqlite3.Error as exc:
+            QMessageBox.critical(self, "Ошибка сохранения", str(exc))
+
+    def on_refresh_now(self) -> None:
+        """Кнопка «Обновить» — перечитать данные во всех вкладках сразу,
+        без переключения между ними (напр. после правок в другом окне/
+        другим оператором, использующим ту же БД)."""
+        self.refresh_all()
+        self.statusBar().showMessage("Данные обновлены", 3000)
 
     # ------------------------------------------------------------------
     # Telegram long-polling
@@ -217,7 +295,12 @@ class MainWindow(QMainWindow):
 
         if self._telegram_thread is not None:
             self._telegram_thread.request_stop()
-            self._telegram_thread.wait(2000)
+            # 20с, а не условные 2с: сам поток может в этот момент сидеть
+            # внутри сетевого long-polling вызова (до ~18с) и не проверять
+            # request_stop(), пока не вернётся — слишком короткое ожидание
+            # рискует "потерять" уже принятый, но ещё не записанный в БД заказ
+            # (баг-репорт: заказ Юмаева пропал при закрытии окна).
+            self._telegram_thread.wait(20000)
             self._telegram_thread = None
 
         if not enabled or not token:
@@ -241,8 +324,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self._telegram_thread is not None:
+            self.statusBar().showMessage("Завершение приёма заказов из Telegram, подождите…")
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
             self._telegram_thread.request_stop()
-            self._telegram_thread.wait(2000)
+            self._telegram_thread.wait(20000)
         super().closeEvent(event)
 
     def _maybe_auto_backup(self) -> None:
@@ -265,3 +351,49 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Автоматическая резервная копия создана", 5000)
         except OSError as exc:
             self.statusBar().showMessage(f"Ошибка автоматического backup: {exc}", 8000)
+
+    def _maybe_show_deadline_digest(self) -> None:
+        """
+        Проактивное напоминание о дедлайнах (раздел «чего не хватает»:
+        сейчас просрочка видна только когда кто-то открыл вкладку и
+        посмотрел на цвет строки — если в этот день никто не заходил в
+        CRM, просрочку никто не заметит). Показывается не чаще одного раза
+        за календарный день — тот же паттерн, что и last_auto_backup_date
+        у _maybe_auto_backup() выше.
+        """
+        today_str = date.today().isoformat()
+        if st.get_setting(self.conn, "last_deadline_digest_date", "") == today_str:
+            return
+        st.set_setting(self.conn, "last_deadline_digest_date", today_str)
+
+        soon_days = st.get_int_setting(self.conn, "deadline_soon_threshold_days", 5)
+        rows = repo.list_tests_with_order(self.conn, quick_filter="all", include_archived=False)
+        events_by_test = repo.list_events_for_test_ids(self.conn, [r["test_id"] for r in rows])
+        today = date.today()
+
+        overdue = 0
+        soon = 0
+        for row in rows:
+            if row["client_issued_at"]:
+                continue
+            events = events_by_test.get(row["test_id"], [])
+            if bl.derive_current_stage(events) == "cancelled":
+                continue
+            deadline = repo.parse_iso_date(row["deadline_date"])
+            if deadline is None:
+                continue
+            days_left = (deadline - today).days
+            if days_left < 0:
+                overdue += 1
+            elif days_left <= soon_days:
+                soon += 1
+
+        if not overdue and not soon:
+            return
+
+        lines = []
+        if overdue:
+            lines.append(f"Просрочено тестов: {overdue}")
+        if soon:
+            lines.append(f"Дедлайн приближается (≤{soon_days} дн.): {soon}")
+        QMessageBox.warning(self, "Дедлайны требуют внимания", "\n".join(lines))

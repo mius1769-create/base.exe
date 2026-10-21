@@ -36,20 +36,39 @@ class HaplogroupEditDialog(QDialog):
         self.test_combo = QComboBox()
         self.test_combo.setEditable(True)
         self.test_combo.setInsertPolicy(QComboBox.NoInsert)
+        # ВАЖНО: сигналы подключаются НИЖЕ, только после того, как весь
+        # комбобокс уже заполнен и выставлен в нужный индекс. Иначе
+        # addItem() на первом же элементе меняет currentIndex с -1 на 0 и
+        # синхронно эмитит currentIndexChanged ДО того, как остальные
+        # виджеты формы (full_name_label, y_dna_edit и т.д.) вообще
+        # созданы — обработчик _on_test_changed() падает с AttributeError
+        # (найденный баг: Qt проглатывает исключение внутри слота молча,
+        # так что сам диалог продолжает строиться и выглядит рабочим, но
+        # начальное состояние формы для первого открытия оказывается не
+        # инициализировано корректно).
         for t in hrepo.list_test_numbers_for_picker(self.conn):
             self.test_combo.addItem(f"{t['gns_number']} — {t['customer_name']}", userData=t["gns_number"])
         completer = QCompleter([self.test_combo.itemText(i) for i in range(self.test_combo.count())], self)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
         completer.setFilterMode(Qt.MatchContains)
         self.test_combo.setCompleter(completer)
-        self.test_combo.currentIndexChanged.connect(self._on_test_changed)
-        self.test_combo.editTextChanged.connect(self._on_test_changed)
         form.addRow("№ теста*", self.test_combo)
 
         if self._locked_test_number:
             idx = self.test_combo.findData(self._locked_test_number)
-            if idx >= 0:
-                self.test_combo.setCurrentIndex(idx)
+            if idx < 0:
+                # тест мог быть архивирован после создания записи гаплогруппы
+                # (list_test_numbers_for_picker отдаёт только активные) — без
+                # этой ветки комбобокс молча оставался бы на первом активном
+                # тесте из списка, и _current_test_number() увела бы сохранение
+                # на чужую запись (см. защиту ниже — эта ветка лишь для
+                # корректного отображения, а не источник истины при сохранении)
+                test_row = hrepo.get_test_by_number(self.conn, self._locked_test_number)
+                label = (f"{self._locked_test_number} — {test_row['customer_name']}"
+                         if test_row else self._locked_test_number)
+                self.test_combo.addItem(label, userData=self._locked_test_number)
+                idx = self.test_combo.count() - 1
+            self.test_combo.setCurrentIndex(idx)
             self.test_combo.setEnabled(False)
 
         self.full_name_label = QLabel("—")
@@ -57,9 +76,10 @@ class HaplogroupEditDialog(QDialog):
 
         self.project_combo = QComboBox()
         self.project_combo.addItem("— без проекта —", userData=None)
-        tree = prepo.build_tree(self.conn, include_archived=False)
-        for pid, name, depth, _archived in prepo.flatten_tree(tree):
-            self.project_combo.addItem(("  " * depth) + name, userData=pid)
+        tree = prepo.build_tree(self.conn, include_archived=True)
+        for pid, name, depth, archived in prepo.flatten_tree(tree):
+            label = ("  " * depth) + name + ("  (архив)" if archived else "")
+            self.project_combo.addItem(label, userData=pid)
         form.addRow("Проект", self.project_combo)
 
         self.y_dna_edit = QLineEdit()
@@ -90,10 +110,20 @@ class HaplogroupEditDialog(QDialog):
         btn_row.addWidget(save_btn)
         layout.addLayout(btn_row)
 
+        # подключаем сигналы только теперь, когда вся форма уже построена
+        # (см. комментарий у создания test_combo выше)
+        self.test_combo.currentIndexChanged.connect(self._on_test_changed)
+        self.test_combo.editTextChanged.connect(self._on_test_changed)
         self._on_test_changed()
 
     # ------------------------------------------------------------------
     def _current_test_number(self) -> Optional[str]:
+        if self._locked_test_number:
+            # источник истины при редактировании — только переданный
+            # test_number, а не текущее состояние комбобокса (который может
+            # не найти архивированный тест в своём списке и молча съехать на
+            # другую запись — см. комментарий в _build_ui)
+            return self._locked_test_number
         idx = self.test_combo.currentIndex()
         data = self.test_combo.itemData(idx) if idx >= 0 else None
         if data:
@@ -107,6 +137,22 @@ class HaplogroupEditDialog(QDialog):
         tn = self._current_test_number()
         row = hrepo.get_test_by_number(self.conn, tn) if tn else None
         self.full_name_label.setText(row["customer_name"] if row else "—")
+        self._apply_y_dna_lock(row["test_type"] if row else None)
+
+    def _apply_y_dna_lock(self, test_type: Optional[str]) -> None:
+        """Y-ДНК не применимо для тестов мтДНК (тип теста берётся из
+        tests.test_type, а не из текстового названия продукта) — поле
+        блокируется для ввода и визуально очищается. Реальная гарантия
+        того, что в БД для такого теста y_dna не сохранится, — на уровне
+        haplogroups_repo.upsert_haplogroup(); это только UI-отражение той
+        же политики."""
+        is_mtdna = test_type in hrepo.MTDNA_TEST_TYPES
+        self.y_dna_edit.setEnabled(not is_mtdna)
+        if is_mtdna:
+            self.y_dna_edit.clear()
+            self.y_dna_edit.setPlaceholderText("Не применимо")
+        else:
+            self.y_dna_edit.setPlaceholderText("")
 
     def _load_existing(self, test_number: str) -> None:
         row = self.conn.execute(
@@ -123,6 +169,11 @@ class HaplogroupEditDialog(QDialog):
         self.semargl_edit.setText(row["semargl_prediction"] or "")
         self.snp_edit.setText(row["snp_issued"] or "")
         self.comment_edit.setPlainText(row["comment"] or "")
+        # переприменяем блокировку Y-ДНК ПОСЛЕ подстановки полей — если в
+        # БД у мтДНК-теста уже случайно оказалось значение y_dna (данные до
+        # этого исправления), поле визуально очищается сразу при открытии,
+        # а не только после следующего сохранения
+        self._on_test_changed()
 
     def _on_save(self) -> None:
         test_number = self._current_test_number()

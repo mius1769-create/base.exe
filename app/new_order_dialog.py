@@ -24,6 +24,7 @@ class NewOrderDialog(QDialog):
     def __init__(self, conn: sqlite3.Connection, parent=None):
         super().__init__(parent)
         self.conn = conn
+        repo.ensure_order_promo_column(self.conn)
         self.setWindowTitle("Новый заказ")
         self.resize(480, 560)
         self._build_form()
@@ -54,6 +55,20 @@ class NewOrderDialog(QDialog):
         self.tracking_edit = QLineEdit()
         form.addRow("Номер отправления", self.tracking_edit)
 
+        self.gns_number_edit = QLineEdit()
+        try:
+            self._suggested_gns = bl.peek_next_gnpsk_number(self.conn)
+        except sqlite3.Error:
+            self._suggested_gns = ""
+        self.gns_number_edit.setText(self._suggested_gns)
+        self.gns_number_edit.setPlaceholderText("Автоматически, при необходимости отредактируйте")
+        self.gns_number_edit.setToolTip(
+            "Номер теста генерируется автоматически по счётчику. Отредактируйте поле,\n"
+            "если нужно проставить конкретный номер вручную (например, для старого\n"
+            "теста 2025 года). Доступно только когда в заказе один тест."
+        )
+        form.addRow("№ теста (GNS)", self.gns_number_edit)
+
         layout.addLayout(form)
 
         layout.addWidget(QLabel("<b>Тесты в заказе</b> (выберите один или несколько):"))
@@ -80,6 +95,9 @@ class NewOrderDialog(QDialog):
         form3 = QFormLayout()
         self.amount_edit = QLineEdit()
         form3.addRow("Сумма заказа", self.amount_edit)
+        self.promo_checkbox = QCheckBox("Промо-заказ (бартер / реклама)")
+        self.promo_checkbox.setToolTip("Не учитывается в коммерческой финансовой статистике, но остаётся в операционной нагрузке.")
+        form3.addRow(self.promo_checkbox)
         layout.addLayout(form3)
 
         btn_row = QHBoxLayout()
@@ -126,6 +144,18 @@ class NewOrderDialog(QDialog):
             qd = self.sample_date.date()
             sample_date = date(qd.year(), qd.month(), qd.day())
 
+        manual_gns_number = None
+        gns_text = self.gns_number_edit.text().strip()
+        if gns_text and gns_text != self._suggested_gns:
+            if len(selected_codes) != 1:
+                QMessageBox.warning(
+                    self, "Проверка",
+                    "Ручной номер теста можно указать, только когда в заказе один тест.\n"
+                    "Для комплекта из нескольких тестов оставьте поле «№ теста» без изменений.",
+                )
+                return
+            manual_gns_number = gns_text
+
         data = repo.NewOrderInput(
             order_no=self.order_no_edit.text().strip(),
             customer_name=self.customer_edit.text().strip(),
@@ -134,11 +164,13 @@ class NewOrderDialog(QDialog):
             delivery_address=self.address_edit.text().strip(),
             tracking_number=self.tracking_edit.text().strip(),
             order_amount=amount,
+            is_promo=self.promo_checkbox.isChecked(),
             source="manual",
             test_type_codes=selected_codes,
             report_added=report_added,
             sample_received_at=sample_date,
             user_name="operator",
+            manual_gns_number=manual_gns_number,
         )
         try:
             repo.create_order_with_tests(self.conn, data)

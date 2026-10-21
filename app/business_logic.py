@@ -127,6 +127,19 @@ def _reserve_next_gnpsk_locked(conn: sqlite3.Connection) -> str:
     return f"{prefix}{next_number:06d}"
 
 
+def peek_next_gnpsk_number(conn: sqlite3.Connection) -> str:
+    """
+    Возвращает следующий номер GNPSK для показа оператору как подсказку
+    (напр. предзаполнение поля в форме создания заказа), НЕ резервируя его —
+    счётчик не двигается. Реальное резервирование при создании теста
+    происходит через _reserve_next_gnpsk_locked.
+    """
+    row = conn.execute(
+        "SELECT next_number, prefix FROM gnpsk_counter WHERE id = 1"
+    ).fetchone()
+    return f"{row['prefix']}{row['next_number']:06d}"
+
+
 def generate_gnpsk_number(conn: sqlite3.Connection) -> str:
     """
     Атомарно резервирует следующий номер GNPSK как самостоятельную операцию.
@@ -175,13 +188,18 @@ def split_order_into_test_types(test_type_codes: list[str]) -> list[str]:
 # ---------------------------------------------------------------------
 
 # Порядок этапов — определяет, какое событие "самое дальнее" (текущий этап).
+# 'cancelled' стоит здесь только для отображения в общем списке типов события
+# (напр. таймлайн внутренней карточки) — это НЕ шаг обычного конвейера, а
+# тупиковое состояние: derive_current_stage() и next_action_event_type()
+# обрабатывают его отдельно, до обхода остального EVENT_ORDER по порядку.
 EVENT_ORDER = [
-    "order_created", "dispatched", "received", "handed_to_lab",
+    "order_created", "cancelled", "dispatched", "received", "handed_to_lab",
     "profile_received", "in_progress", "issued",
 ]
 
 EVENT_LABELS_INTERNAL = {
     "order_created": "Заказ создан",
+    "cancelled": "Отменён",
     "dispatched": "Отправлен",
     "received": "Образец получен",
     "handed_to_lab": "Передано в лабораторию",
@@ -208,6 +226,7 @@ ACTION_BUTTON_LABELS = {
 # служебные действия").
 EVENT_LABELS_CLIENT = {
     "order_created": "Заказ оформлен",
+    "cancelled": "Отменён",
     "dispatched": "Образец в пути",
     "received": "Образец получен",
     "handed_to_lab": "В обработке",
@@ -223,8 +242,15 @@ def _event_types_present(events) -> set:
 
 def derive_current_stage(events) -> Optional[str]:
     """Возвращает event_type самого дальнего зафиксированного события, или
-    None, если событий ещё нет вовсе."""
+    None, если событий ещё нет вовсе.
+
+    'cancelled' — тупиковое состояние (см. EVENT_ORDER): если оно
+    зафиксировано, возвращается сразу, независимо от того, какие ещё
+    события уже были записаны до отмены и где 'cancelled' стоит в
+    EVENT_ORDER."""
     present = _event_types_present(events)
+    if "cancelled" in present:
+        return "cancelled"
     for et in reversed(EVENT_ORDER):
         if et in present:
             return et
@@ -240,19 +266,35 @@ def is_awaiting_receipt(events) -> bool:
 
 
 def client_status_label(events) -> str:
-    """Единственная точка, где определяется, что видит клиент по этапу."""
-    if is_awaiting_receipt(events):
-        return "Ожидаем получение"
+    """Единственная точка, где определяется, что видит клиент по этапу.
+
+    'Ожидаем получение' — переходное состояние ТОЛЬКО пока 'dispatched' —
+    самый дальний зафиксированный этап (is_awaiting_receipt). Если тест
+    реально продвинулся дальше (напр. исторические данные: 'received' не
+    было зафиксировано, но 'issued' — было), нельзя откатывать статус
+    назад к "ожидаем получение" только из-за пропуска в журнале — это
+    показывало бы уже выданный клиенту тест как ещё не полученный
+    (баг-репорт: "статус в столбце не совпадает с уже пройденными
+    этапами у исторических тестов")."""
     stage = derive_current_stage(events)
+    if stage == "cancelled":
+        return EVENT_LABELS_CLIENT["cancelled"]
+    if stage == "dispatched" and is_awaiting_receipt(events):
+        return "Ожидаем получение"
     if stage is None or stage == "order_created":
         return "Ожидаем получение"
     return EVENT_LABELS_CLIENT.get(stage, "—")
 
 
 def internal_status_label(events) -> str:
-    if is_awaiting_receipt(events):
-        return "Ожидаем получение"
+    """См. комментарий в client_status_label о том, почему 'Ожидаем
+    получение' применяется только когда 'dispatched' — самый дальний
+    пройденный этап, а не при любом пропуске 'received' в журнале."""
     stage = derive_current_stage(events)
+    if stage == "cancelled":
+        return EVENT_LABELS_INTERNAL["cancelled"]
+    if stage == "dispatched" and is_awaiting_receipt(events):
+        return "Ожидаем получение"
     if stage is None:
         return "—"
     return EVENT_LABELS_INTERNAL.get(stage, "—")
@@ -260,9 +302,19 @@ def internal_status_label(events) -> str:
 
 def next_action_event_type(events) -> Optional[str]:
     """Какое событие оператору логично зафиксировать следующим (кнопка
-    основного быстрого действия). None, если маршрут уже полностью пройден."""
+    основного быстрого действия). None, если маршрут уже полностью пройден
+    или отменён.
+
+    'cancelled' не участвует в этом переборе — это не шаг обычного
+    конвейера, а отдельное действие (кнопка «Отменить заказ» в UI), поэтому
+    оно не должно "перетягивать" на себя подсветку следующего шага для
+    любого свежесозданного заказа."""
     present = _event_types_present(events)
+    if "cancelled" in present:
+        return None
     for et in EVENT_ORDER:
+        if et == "cancelled":
+            continue
         if et not in present:
             return et
     return None

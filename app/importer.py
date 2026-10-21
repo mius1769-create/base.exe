@@ -189,6 +189,7 @@ def import_excel(
                     field=None, old_value=None, new_value=f"импортирован ({gns_number})",
                     reason=f"импорт Excel batch={batch_id}",
                 )
+                repo.ensure_haplogroup_stub(conn, gns_number, customer_name)
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")

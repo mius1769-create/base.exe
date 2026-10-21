@@ -13,9 +13,9 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QCheckBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QFileDialog, QMessageBox,
+    QAbstractItemView, QFileDialog, QMessageBox, QStyledItemDelegate,
 )
 
 from . import haplogroups_repo as hrepo
@@ -38,9 +38,48 @@ COLUMNS = [
 # Согласованность NevGen/Semargl -> цвет строки (раздел ТЗ).
 _ROW_BG = {
     hlogic.HaploColor.GREEN: "#e9f8ef",
-    hlogic.HaploColor.YELLOW: "#fff6df",
     hlogic.HaploColor.RED: "#fee2e2",
 }
+
+# Данные строки для экспорта хранятся прямо на QTableWidgetItem (доп. роль),
+# а не в отдельном кэше-списке — иначе после сортировки таблицы кликом по
+# заголовку (setSortingEnabled(True) двигает строки местами) экспорт отдавал
+# бы данные в СТАРОМ порядке запроса, а не в том, что реально видно на
+# экране. setData/data на самой ячейке Qt переносит вместе со строкой при
+# сортировке, так что рассинхронизация невозможна в принципе.
+_EXPORT_DATA_ROLE = Qt.UserRole + 1
+
+
+class _RowColorDelegate(QStyledItemDelegate):
+    """Найденный баг цветовой индикации: theme.py задаёт правило
+    ``QTableWidget::item { padding: ...; border: none; }`` (нужно для
+    отступов во ВСЕХ таблицах приложения). Сам факт наличия ЛЮБОГО
+    правила для ``::item`` в применённом stylesheet заставляет Qt
+    полностью передать отрисовку ячейки CSS-движку QStyleSheetStyle —
+    а тот игнорирует данные Qt.BackgroundRole элемента (то, что кладёт
+    QTableWidgetItem.setBackground()) целиком, даже если само правило
+    не трогает background напрямую. Подтверждено изолированным тестом:
+    один и тот же item.setBackground() рендерится корректно БЕЗ этого
+    QSS-правила и НЕ рендерится вовсе с ним — значит, дело не в логике
+    цвета (она верна), а в отрисовке.
+
+    setCellWidget() вместо обычного QTableWidgetItem (как это уже
+    сделано в internal_tab.py для похожей проблемы с цветом текста при
+    выделении) здесь не подходит: тогда ломается нативная сортировка
+    кликом по заголовку — Qt сравнивает при сортировке только
+    QTableWidgetItem, cell widget в сравнении не участвует.
+
+    Поэтому красим фон вручную в paint() ДО делегирования в базовую
+    реализацию — локально для этой таблицы, без изменений в theme.py и
+    без влияния на другие вкладки."""
+
+    def paint(self, painter, option, index) -> None:
+        brush = index.data(Qt.BackgroundRole)
+        if brush is not None:
+            painter.save()
+            painter.fillRect(option.rect, brush)
+            painter.restore()
+        super().paint(painter, option, index)
 
 
 class HaplogroupsTabWidget(QWidget):
@@ -48,7 +87,6 @@ class HaplogroupsTabWidget(QWidget):
         super().__init__()
         self.conn = conn
         self.main_window = main_window
-        self._rows_cache: list[dict] = []
         self._build_ui()
         self.refresh()
 
@@ -88,6 +126,11 @@ class HaplogroupsTabWidget(QWidget):
         self.snp_edit.textChanged.connect(self.refresh)
         filter_row.addWidget(self.snp_edit, stretch=1)
 
+        self.show_archived_check = QCheckBox("Показывать архив")
+        self.show_archived_check.setChecked(False)
+        self.show_archived_check.toggled.connect(self.refresh)
+        filter_row.addWidget(self.show_archived_check)
+
         root.addLayout(filter_row)
 
         toolbar_row = QHBoxLayout()
@@ -121,6 +164,7 @@ class HaplogroupsTabWidget(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(24)
         self.table.setSortingEnabled(True)
         self.table.doubleClicked.connect(self._on_row_double_clicked)
+        self.table.setItemDelegate(_RowColorDelegate(self.table))
         root.addWidget(self.table, stretch=1)
 
         self.count_label = QLabel("")
@@ -153,16 +197,20 @@ class HaplogroupsTabWidget(QWidget):
             y_dna=self.y_dna_edit.text().strip() or None,
             mt_dna=self.mt_dna_edit.text().strip() or None,
             snp_issued=self.snp_edit.text().strip() or None,
+            include_archived=self.show_archived_check.isChecked(),
         )
 
-        self._rows_cache = []
+        # пути проектов для ВСЕХ строк одним запросом (Fix N+1) вместо
+        # get_project_path() внутри цикла на каждую строку
+        project_paths = prepo.build_project_paths(self.conn)
+
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             color = hlogic.calculate_haplo_color(
-                row["nevgen_prediction"], row["semargl_prediction"], row["y_dna"]
+                row["nevgen_prediction"], row["semargl_prediction"]
             )
-            project_path = prepo.get_project_path(self.conn, row["project_id"])
+            project_path = project_paths.get(row["project_id"], "")
             values = {
                 "test_number": row["test_number"] or "",
                 "full_name": row["display_full_name"] or "",
@@ -174,14 +222,7 @@ class HaplogroupsTabWidget(QWidget):
                 "snp_issued": row["snp_issued"] or "",
                 "comment": row["comment"] or "",
             }
-            bg = _ROW_BG.get(color)
-            for col_idx, (key, _label) in enumerate(COLUMNS):
-                item = QTableWidgetItem(values[key])
-                item.setData(Qt.UserRole, row["test_number"])
-                if bg:
-                    item.setBackground(QColor(bg))
-                self.table.setItem(i, col_idx, item)
-            self._rows_cache.append({
+            export_row = {
                 "test_number": values["test_number"],
                 "full_name": values["full_name"],
                 "project_path": project_path,
@@ -191,9 +232,38 @@ class HaplogroupsTabWidget(QWidget):
                 "semargl_prediction": values["semargl_prediction"],
                 "snp_issued": values["snp_issued"],
                 "comment": values["comment"],
-            })
+            }
+            bg = _ROW_BG.get(color)
+            archived = bool(row["is_archived"])
+            for col_idx, (key, _label) in enumerate(COLUMNS):
+                item = QTableWidgetItem(values[key])
+                item.setData(Qt.UserRole, row["test_number"])
+                if col_idx == 0:
+                    item.setData(_EXPORT_DATA_ROLE, export_row)
+                if bg:
+                    item.setBackground(QColor(bg))
+                if archived:
+                    item.setForeground(QColor(theme.TEXT_MUTED))
+                self.table.setItem(i, col_idx, item)
         self.table.setSortingEnabled(True)
         self.count_label.setText(f"Записей: {len(rows)}")
+
+        # Пересборка содержимого таблицы сразу после закрытия модального
+        # диалога добавления/редактирования — тот же класс проблемы, что и
+        # в internal_tab.py (InternalCardWidget.show_test): пересчёт
+        # geometry/repaint в некоторых рендер-бэкендах может не произойти
+        # немедленно без явного толчка, из-за чего список визуально выглядит
+        # неизменившимся, пока не переключить вкладку. Форсируем перерисовку.
+        self.table.viewport().update()
+        self.table.update()
+
+    def _current_export_rows(self) -> list[dict]:
+        """Данные строк в ТЕКУЩЕМ порядке отображения таблицы (с учётом
+        сортировки кликом по заголовку), а не в порядке исходного запроса."""
+        return [
+            self.table.item(r, 0).data(_EXPORT_DATA_ROLE)
+            for r in range(self.table.rowCount())
+        ]
 
     # ------------------------------------------------------------------
     def _on_row_double_clicked(self, index) -> None:
@@ -225,7 +295,7 @@ class HaplogroupsTabWidget(QWidget):
         if not path:
             return
         try:
-            count = exporter.export_haplogroups_to_excel(self._rows_cache, path)
+            count = exporter.export_haplogroups_to_excel(self._current_export_rows(), path)
         except OSError as exc:
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return
@@ -239,7 +309,7 @@ class HaplogroupsTabWidget(QWidget):
         if not path:
             return
         try:
-            count = exporter.export_haplogroups_to_csv(self._rows_cache, path)
+            count = exporter.export_haplogroups_to_csv(self._current_export_rows(), path)
         except OSError as exc:
             QMessageBox.critical(self, "Ошибка экспорта", str(exc))
             return

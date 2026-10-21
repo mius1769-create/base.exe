@@ -18,12 +18,12 @@ from app import telegram_poller as poller
 from app import settings as st
 
 
-SAMPLE_TEXT = """Заказ №1841848612
+SAMPLE_TEXT = """Заказ №1000000001
 
 1. FULL LINE - Y50+мтДНК в единой истории семьи: 14990 (1 x 14990) 8
 Заказ оплачен.
 Ozon
-Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon173015, Великий Новгород
+Адрес доставки: RU: Пункт выдачи заказа: ПВЗ Ozon000002, Великий Новгород
 ФИО: Тестовый Клиент Примерович
 Сумма платежа: 14990 RUB
 Код платежа: Банк Точка: ...
@@ -33,8 +33,8 @@ Email: kirill.n@example.com
 phone: +70000000000
 
 Дополнительная информация:
-Код заявки: 5241658:8584467492
-Код блока: rec1605680141
+Код заявки: 0000000:0000000001
+Код блока: rec0000000000
 Форма: Cart
 """
 
@@ -91,7 +91,7 @@ def test_batch_creates_order_from_valid_message(conn):
     assert result.last_update_id == 100
     assert len(result.errors) == 0
 
-    order = conn.execute("SELECT * FROM orders WHERE order_no='1841848612'").fetchone()
+    order = conn.execute("SELECT * FROM orders WHERE order_no='1000000001'").fetchone()
     assert order is not None
     assert order["source"] == "Telegram"
 
@@ -118,7 +118,7 @@ def test_batch_updates_not_creates_duplicate_on_repeat(conn):
     result2 = poller.process_update_batch(conn, [make_update(2, text=SAMPLE_TEXT)])
     assert result2.new_orders == 0
     assert result2.updated_orders == 1
-    all_orders = conn.execute("SELECT * FROM orders WHERE order_no='1841848612'").fetchall()
+    all_orders = conn.execute("SELECT * FROM orders WHERE order_no='1000000001'").fetchall()
     assert len(all_orders) == 1
 
 
@@ -137,7 +137,7 @@ def test_batch_one_bad_message_does_not_block_others(conn, monkeypatch):
 
     monkeypatch.setattr(poller.tp, "create_or_update_order_from_message", flaky)
 
-    updates = [make_update(1, text=SAMPLE_TEXT), make_update(2, text=SAMPLE_TEXT.replace("1841848612", "999"))]
+    updates = [make_update(1, text=SAMPLE_TEXT), make_update(2, text=SAMPLE_TEXT.replace("1000000001", "999"))]
     result = poller.process_update_batch(conn, updates)
 
     assert len(result.errors) == 1

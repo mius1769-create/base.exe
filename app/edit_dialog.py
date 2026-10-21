@@ -99,7 +99,9 @@ class TestEditDialog(QDialog):
         self.order_no_edit = QLineEdit(r["order_no"] or "")
         form.addRow("№ заказа", self.order_no_edit)
 
-        self.gns_label = QLabel(r["gns_number"])
+        tt_meta = repo.get_test_type(self.conn, r["test_type"])
+        self._requires_lab = bool(tt_meta["requires_lab"]) if "requires_lab" in tt_meta.keys() else True
+        self.gns_label = QLabel(r["gns_number"] if self._requires_lab else "— (сервисная позиция)")
         form.addRow("GNS", self.gns_label)
 
         self.customer_edit = QLineEdit(r["customer_name"] or "")
@@ -205,14 +207,39 @@ class TestEditDialog(QDialog):
         layout.addLayout(form)
 
         btn_row = QHBoxLayout()
+        delete_btn = QPushButton("Удалить позицию из заказа")
+        delete_btn.setToolTip("Для ошибочно добавленной позиции. Уже начатый производственный тест удалить нельзя.")
+        delete_btn.clicked.connect(self._on_delete_item)
         save_btn = QPushButton("Сохранить")
         save_btn.clicked.connect(self._on_save)
         cancel_btn = QPushButton("Отмена")
         cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(delete_btn)
         btn_row.addStretch(1)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(save_btn)
         layout.addLayout(btn_row)
+
+    def _on_delete_item(self) -> None:
+        product_name = pcat.get_display_name(self.row["test_type"])
+        reply = QMessageBox.question(
+            self, "Удалить позицию из заказа",
+            f"Удалить позицию «{product_name}» из заказа?\n\n"
+            "Используйте это только для ошибочно добавленной позиции. Действие будет записано в историю.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            repo.delete_order_item(self.conn, self.test_id, user_name="operator")
+        except ValueError as exc:
+            QMessageBox.warning(self, "Удаление невозможно", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка удаления", str(exc))
+            return
+        QMessageBox.information(self, "Готово", "Позиция удалена из заказа.")
+        self.accept()
 
     def _on_save(self) -> None:
         if not self.customer_edit.text().strip():

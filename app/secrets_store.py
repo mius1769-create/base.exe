@@ -70,3 +70,29 @@ def clear_telegram_bot_token() -> None:
     data = _load()
     data.pop("telegram_bot_token", None)
     _save(data)
+
+
+# ---------------------------------------------------------------------------
+# Прокси для обращений к Telegram Bot API (см. telegram_client.py). Логин/
+# пароль прокси — секрет, поэтому тоже живёт здесь, а не в таблице settings
+# (тип/хост/порт прокси не секретны и хранятся в settings через
+# settings.py — так и логин/пароль, и адрес прокси можно менять из одного
+# диалога настроек, но по разным правилам хранения).
+
+def get_telegram_proxy_credentials() -> tuple[Optional[str], Optional[str]]:
+    data = _load()
+    return data.get("telegram_proxy_username"), data.get("telegram_proxy_password")
+
+
+def set_telegram_proxy_credentials(username: str, password: str) -> None:
+    data = _load()
+    data["telegram_proxy_username"] = username
+    data["telegram_proxy_password"] = password
+    _save(data)
+
+
+def clear_telegram_proxy_credentials() -> None:
+    data = _load()
+    data.pop("telegram_proxy_username", None)
+    data.pop("telegram_proxy_password", None)
+    _save(data)
