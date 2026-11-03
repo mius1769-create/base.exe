@@ -6,15 +6,17 @@
   * kit ID, email и контакты хранятся только для владельца и никогда не
     попадают в результаты поиска и экспорт (сериализация — по белым спискам);
   * наружу профиль виден только по случайному непрозрачному public_handle;
-  * гостевые запросы в базу не пишутся.
+  * гостевые запросы в базу не пишутся;
+  * незавершённые загрузки файлов в базу не пишутся (var/staging/, nestor_app.staging).
 """
 
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -70,10 +72,10 @@ CREATE TABLE IF NOT EXISTS profile_markers (
     PRIMARY KEY (profile_id, marker)
 );
 
--- Исходные файлы импорта владельца. Хранятся только временно — между загрузкой и
--- решением (сохранение / отмена). После сохранения файл удаляется, если владелец
--- отдельно не согласился хранить полный оригинал (keep_original = 1); такой файл
--- удаляется вместе с последним профилем из него и вместе с аккаунтом.
+-- Полные исходные файлы импорта — ТОЛЬКО по отдельному согласию владельца
+-- (keep_original = 1). Незавершённые загрузки сюда не пишутся (они во временной
+-- папке var/staging/, вне базы и её резервных копий). Файл удаляется вместе с
+-- последним профилем из него и вместе с аккаунтом.
 CREATE TABLE IF NOT EXISTS import_files (
     id             INTEGER PRIMARY KEY,
     owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -129,7 +131,9 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA secure_delete = ON")  # удалённые данные затираются в файле
+    # SQLite перезаписывает содержимое удалённых записей в страницах файла базы;
+    # это не гарантирует стирание с носителя (SSD, снимки ФС, внешние копии).
+    conn.execute("PRAGMA secure_delete = ON")
     if str(path) != ":memory:":
         conn.execute("PRAGMA journal_mode = WAL")
     init_schema(conn)
@@ -147,6 +151,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE import_files ADD COLUMN keep_original_at TEXT")
         # файлы, сохранённые до v5 без отдельного согласия, удаляются
         conn.execute("DELETE FROM import_files WHERE status = 'committed'")
+    if icols:  # миграция v5 → v6: незавершённые загрузки больше не хранятся в базе
+        conn.execute("DELETE FROM import_files WHERE status = 'staged'")
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(profiles)")}
     if pcols and "panel_code" not in pcols:  # миграция v2 → v3: панель профиля
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_code TEXT")
@@ -158,16 +164,43 @@ def init_schema(conn: sqlite3.Connection) -> None:
     )
 
 
-def purge_freed_pages(conn: sqlite3.Connection) -> None:
-    """После удаления чувствительных данных: перенести WAL в основной файл и усечь его.
+@dataclass(frozen=True)
+class CheckpointResult:
+    """Результат PRAGMA wal_checkpoint(TRUNCATE).
 
-    При PRAGMA secure_delete = ON освобождённые страницы основного файла затираются;
-    checkpoint(TRUNCATE) убирает прежние версии страниц из файла WAL.
+    status: 'complete' — все кадры WAL перенесены и WAL усечён;
+            'incomplete' — checkpoint не завершён (например, открыт читатель):
+                           в WAL могут оставаться прежние версии страниц;
+            'not_wal' — база не в режиме WAL (например, :memory:).
+    """
+
+    status: str
+    busy: int
+    log_frames: int
+    checkpointed: int
+
+    @property
+    def complete(self) -> bool:
+        return self.status == "complete"
+
+
+def checkpoint_truncate(conn: sqlite3.Connection) -> CheckpointResult:
+    """Перенести WAL в основной файл и усечь его; результат проверяется, а не предполагается.
+
+    При PRAGMA secure_delete = ON SQLite перезаписывает содержимое удалённых записей
+    в страницах базы; после полного checkpoint(TRUNCATE) прежние версии страниц
+    уходят и из файла WAL. Это относится к файлам базы приложения; стирание с
+    носителя (SSD, снимки файловой системы, внешние копии) не гарантируется.
     """
     try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        busy, log, ckpt = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
     except sqlite3.OperationalError:
-        pass  # :memory: или занятая база — содержимое уже удалено логически
+        return CheckpointResult("incomplete", 1, -1, -1)
+    if log == -1:
+        return CheckpointResult("not_wal", busy, log, ckpt)
+    if busy == 0 and log == 0 and ckpt == 0:  # TRUNCATE: WAL пуст после переноса
+        return CheckpointResult("complete", busy, log, ckpt)
+    return CheckpointResult("incomplete", busy, log, ckpt)
 
 
 class Tx:

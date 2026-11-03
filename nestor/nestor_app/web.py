@@ -19,7 +19,9 @@ import email.policy
 
 from . import accounts, contacts, panels
 from . import importer as im
+from . import staging
 from . import user_import as ui
+from .db import checkpoint_truncate
 from . import markers as mk
 from . import profiles as pr
 from . import reference, search
@@ -59,6 +61,32 @@ class NestorApp:
         self.conn = connect(settings.users_db)
         self.secret = load_or_create_secret(settings.secret_file)
         self.lock = threading.Lock()
+        self.staging_dir = settings.staging_dir or (settings.var_dir / "staging")
+        self.last_maintenance: dict = {}
+        self._timer: threading.Timer | None = None
+        self.maintenance()  # при запуске: очистка временных загрузок после сбоя / по сроку
+
+    def maintenance(self) -> dict:
+        """Очистка временных загрузок и повторный checkpoint WAL (без ручного вмешательства)."""
+        with self.lock:
+            stats = staging.sweep(self.staging_dir)
+            ck = checkpoint_truncate(self.conn)
+        self.last_maintenance = {**stats, "checkpoint": ck.status}
+        return self.last_maintenance
+
+    def start_maintenance_timer(self, interval: float = staging.SWEEP_INTERVAL_SECONDS) -> None:
+        def tick():
+            try:
+                self.maintenance()
+            finally:
+                self.start_maintenance_timer(interval)
+        self._timer = threading.Timer(interval, tick)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def stop_maintenance_timer(self) -> None:
+        if self._timer:
+            self._timer.cancel()
 
     def make_server(self) -> ThreadingHTTPServer:
         app = self
@@ -203,9 +231,9 @@ class _Handler(BaseHTTPRequestHandler):
             return self._new_profile_form(sess)
         if path == "/import":
             return self._import_form(sess)
-        m = re.fullmatch(r"/import/(\d+)", path)
+        m = re.fullmatch(r"/import/([0-9a-f]{32})", path)
         if m:
-            return self._import_preview(sess, int(m.group(1)))
+            return self._import_preview(sess, m.group(1))
         m = re.fullmatch(r"/profiles/(\d+)", path)
         if m:
             return self._profile_page(sess, int(m.group(1)))
@@ -252,19 +280,20 @@ class _Handler(BaseHTTPRequestHandler):
             if "file" not in self.files:
                 raise ValueError("выберите файл CSV или XLSX")
             filename, data = self.files["file"]
-            upload_id, _ = ui.stage(self.nestor.conn, uid, filename, data, form.get("panel", "AUTO"))
+            upload_id, _ = ui.stage(self.nestor.conn, self.nestor.staging_dir, uid, filename, data,
+                                    form.get("panel", "AUTO"))
             return self._redirect(f"/import/{upload_id}")
-        m = re.fullmatch(r"/import/(\d+)/(commit|discard)", path)
+        m = re.fullmatch(r"/import/([0-9a-f]{32})/(commit|discard)", path)
         if m:
-            upload_id = int(m.group(1))
+            upload_id = m.group(1)
             if m.group(2) == "discard":
-                ui.discard(self.nestor.conn, uid, upload_id)
+                ui.discard(self.nestor.staging_dir, uid, upload_id)
                 return self._redirect("/me")
             rows = []
             for v in self.form_lists.get("row", []):
                 sheet, _, num = v.rpartition("|")
                 rows.append((sheet, int(num)))
-            ui.commit(self.nestor.conn, uid, upload_id, rows, consent_basis=form.get("consent_basis", ""),
+            ui.commit(self.nestor.conn, self.nestor.staging_dir, uid, upload_id, rows, consent_basis=form.get("consent_basis", ""),
                       consent_confirmed=form.get("consent_confirmed") == "1",
                       keep_original=form.get("keep_original") == "1")
             return self._redirect("/me")
@@ -457,10 +486,12 @@ Y700 не поддерживается.</p></div>"""
 <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx" required></p>
 <p>Панель {self._panel_select()}<br><span class="muted">Выбранная панель: локусы файла вне неё — ошибка листа.
 «Определить автоматически» — по заголовкам, только при надёжном совпадении; иначе — пользовательский набор.</span></p>
-<p class="muted">Файл временно хранится локально только для проверки. После подтверждения сохраняются
-выбранные строки (исходные ячейки), имя файла, лист, номера строк и SHA-256; полный файл удаляется,
-если вы отдельно не попросите его сохранить. При отмене файл удаляется.
-Профили создаются закрытыми; записи не объединяются.
+<p class="muted">До вашего решения файл лежит во временной папке приложения (не в базе и не в её резервных
+копиях) и автоматически удаляется через сутки, при отмене или после сохранения. После подтверждения в базе
+остаются только выбранные строки (исходные ячейки), имя файла, лист, номера строк и SHA-256; полный файл —
+только если вы отдельно попросите его сохранить. Профили создаются закрытыми; записи не объединяются.
+Удаление относится к файлам приложения: стирание с диска (SSD), из снимков системы и ваших собственных
+копий приложение не гарантирует.
 Не более {im.MAX_FILE_BYTES // (1024 * 1024)} МБ и {im.MAX_ROWS} строк.</p>
 <button>Загрузить и проверить</button></form></div>""", sess)
 
@@ -468,7 +499,7 @@ Y700 не поддерживается.</p></div>"""
         if not sess:
             return self._redirect("/login")
         uid, csrf = sess
-        prev = ui.preview_of(self.nestor.conn, uid, upload_id)
+        prev = ui.preview_of(self.nestor.conn, self.nestor.staging_dir, uid, upload_id)
         summ = prev.summary()
         sheet_rows = "".join(
             f"<tr><td>{esc(sh['name'])}</td><td>{esc(panels.panel_label(sh['panel'] if sh['panel'] != 'custom' else None, sh['panel_basis']))}</td>"
@@ -508,8 +539,9 @@ Y700 не поддерживается.</p></div>"""
 файла; сам файл удаляется.</p>
 <p><label><input type="checkbox" name="keep_original" value="1"> Дополнительно сохранить полный исходный файл
 для локального аудита (необязательно).</label><br><span class="warn">Внимание: вместе с файлом сохранятся
-<b>все</b> его строки и листы, включая профили, которые вы не выбрали. Файл будет удалён вместе с последним
-сохранённым из него профилем.</span></p>
+<b>все</b> его строки и листы, включая профили, которые вы не выбрали. Из активной базы файл удаляется вместе
+с последним сохранённым из него профилем; в уже сделанных резервных копиях базы он остаётся до их удаления
+по сроку хранения копий.</span></p>
 <button>Сохранить выбранные</button></form>
 <form method="post" action="/import/{upload_id}/discard"><input type="hidden" name="csrf" value="{esc(csrf)}">
 <button>Отменить и удалить файл</button></form></div>"""

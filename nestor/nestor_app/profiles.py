@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from . import markers as mk
 from . import panels as pn
-from .db import Tx, purge_freed_pages
+from .db import CheckpointResult, Tx, checkpoint_truncate
 
 CONSENT_TEXT_VERSION = "2026-11-mvp1"
 CONSENT_BASES = ("own_test", "authorized_other")
@@ -215,11 +215,13 @@ def update_public_fields(
         )
 
 
-def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> None:
-    """Полное удаление: профиль, маркеры, журнал согласий, запросы на связь, происхождение
-    из файла (каскад); исходный файл удаляется, если в нём не осталось других профилей.
+def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> CheckpointResult:
+    """Удаление из активной базы: профиль, маркеры, журнал согласий, запросы на связь,
+    происхождение из файла (каскад); сохранённый по согласию оригинал удаляется, если
+    в нём не осталось других профилей.
 
-    PRAGMA secure_delete затирает удалённые страницы в файле базы.
+    Возвращает результат checkpoint WAL (complete / incomplete / not_wal). Удаление
+    касается файлов приложения; стирание с носителя и из внешних копий не гарантируется.
     """
     _owned_row(conn, owner_user_id, profile_id)
     with Tx(conn):
@@ -230,7 +232,7 @@ def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int
                                 (src["import_file_id"],)).fetchone()[0]
             if left == 0:  # сохранённый по согласию оригинал больше не нужен ни одному профилю
                 conn.execute("DELETE FROM import_files WHERE id = ?", (src["import_file_id"],))
-    purge_freed_pages(conn)
+    return checkpoint_truncate(conn)
 
 
 def iter_searchable(conn: sqlite3.Connection, exclude_owner: int | None = None):

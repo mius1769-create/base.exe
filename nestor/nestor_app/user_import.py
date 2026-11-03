@@ -1,32 +1,39 @@
 """Импорт профилей владельца из CSV / XLSX: загрузка → просмотр → сохранение выбранных строк.
 
-Хранение файла (решение заказчика):
-  * загруженный файл хранится ВРЕМЕННО (import_files, status = staged) — только
-    чтобы показать просмотр и сохранить выбранные строки;
-  * после сохранения по умолчанию остаются только исходные ячейки выбранных строк,
-    имя файла, лист, номер строки и SHA-256 всего файла (profile_sources); сам
-    файл удаляется — в нём могут быть профили, которые пользователь не выбрал;
-  * полный оригинал сохраняется только при отдельном согласии keep_original
-    (предупреждение: сохранятся и невыбранные строки и листы); такой файл
-    удаляется вместе с последним профилем из него;
-  * отмена удаляет временный файл; новая загрузка удаляет прежние незавершённые
-    загрузки владельца, незавершённые загрузки старше суток удаляются.
-Сохранённый профиль создаётся закрытым. Повторы только помечаются; записи не объединяются.
+Хранение файла:
+  * незавершённая загрузка — во временной папке var/staging/ (nestor_app.staging),
+    вне пользовательской базы и её резервных копий; срок — staging.TTL_SECONDS,
+    затем удаляется автоматически (sweep при запуске, по таймеру и при загрузке);
+  * после сохранения в базе остаются только исходные ячейки выбранных строк,
+    имя файла, лист, номер строки и SHA-256 всего файла (profile_sources);
+    временные файлы загрузки удаляются;
+  * полный оригинал записывается в базу только при отдельном согласии keep_original
+    (сохранятся и невыбранные строки и листы); удаляется с последним профилем из файла;
+  * отмена удаляет временные файлы загрузки.
+Повторы только помечаются; записи не объединяются.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import importer as im
 from . import profiles as pr
-from .db import purge_freed_pages
-
-STAGED_TTL = "-1 day"
+from . import staging
+from .db import CheckpointResult, checkpoint_truncate
 
 
 class UploadError(ValueError):
     pass
+
+
+@dataclass
+class CommitResult:
+    profile_ids: list = field(default_factory=list)
+    original_kept: bool = False
+    checkpoint: CheckpointResult | None = None
 
 
 def _existing(conn: sqlite3.Connection, owner_user_id: int):
@@ -37,60 +44,41 @@ def _existing(conn: sqlite3.Connection, owner_user_id: int):
     return out
 
 
-def stage(conn: sqlite3.Connection, owner_user_id: int, filename: str, data: bytes,
-          panel_choice: str = "AUTO") -> tuple[int, im.Preview]:
-    """Проверить файл и сохранить его как «загружен, ждёт подтверждения»."""
+def stage(conn: sqlite3.Connection, staging_root: Path, owner_user_id: int, filename: str, data: bytes,
+          panel_choice: str = "AUTO") -> tuple[str, im.Preview]:
+    """Проверить файл и положить его во временную папку (в базу ничего не пишется)."""
+    staging.sweep(staging_root)
     preview = im.build_preview(filename, data, panel_choice, existing=_existing(conn, owner_user_id))
-    # одна незавершённая загрузка на владельца; брошенные загрузки старше суток — удаляются
-    conn.execute("DELETE FROM import_files WHERE status = 'staged' AND "
-                 "(owner_user_id = ? OR created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', ?))",
-                 (owner_user_id, STAGED_TTL))
-    cur = conn.execute(
-        "INSERT INTO import_files(owner_user_id, filename, sha256, size_bytes, content, panel_choice) VALUES (?,?,?,?,?,?)",
-        (owner_user_id, preview.filename, preview.sha256, preview.size, data, panel_choice),
-    )
-    return int(cur.lastrowid), preview
+    st = staging.put(staging_root, owner_user_id, preview.filename, data, panel_choice)
+    return st.upload_id, preview
 
 
-def _staged(conn, owner_user_id: int, upload_id: int):
-    row = conn.execute("SELECT * FROM import_files WHERE id = ? AND owner_user_id = ?",
-                       (upload_id, owner_user_id)).fetchone()
-    if row is None:
-        raise UploadError("загрузка не найдена")
-    return row
+def _load(staging_root: Path, owner_user_id: int, upload_id: str):
+    try:
+        return staging.get(staging_root, owner_user_id, upload_id)
+    except staging.StagingError as e:
+        raise UploadError(str(e)) from None
 
 
-def preview_of(conn, owner_user_id: int, upload_id: int) -> im.Preview:
-    row = _staged(conn, owner_user_id, upload_id)
-    return im.build_preview(row["filename"], bytes(row["content"]), row["panel_choice"],
-                            existing=_existing(conn, owner_user_id))
+def preview_of(conn, staging_root: Path, owner_user_id: int, upload_id: str) -> im.Preview:
+    st, data = _load(staging_root, owner_user_id, upload_id)
+    return im.build_preview(st.filename, data, st.panel_choice, existing=_existing(conn, owner_user_id))
 
 
-def discard(conn, owner_user_id: int, upload_id: int) -> None:
-    row = _staged(conn, owner_user_id, upload_id)
-    if row["status"] != "staged":
-        raise UploadError("файл уже сохранён: удалите профили из него, чтобы удалить файл")
-    conn.execute("DELETE FROM import_files WHERE id = ?", (upload_id,))
-    purge_freed_pages(conn)
+def discard(staging_root: Path, owner_user_id: int, upload_id: str) -> None:
+    _load(staging_root, owner_user_id, upload_id)   # проверка владельца
+    staging.delete(staging_root, upload_id)
 
 
-def commit(conn, owner_user_id: int, upload_id: int, selected: list[tuple[str, int]], *,
-           consent_basis: str, consent_confirmed: bool, keep_original: bool = False) -> list[int]:
-    """Сохранить выбранные строки (лист, номер строки) как закрытые профили.
-
-    keep_original=False (по умолчанию): после сохранения полный файл удаляется,
-    остаются только ячейки выбранных строк и SHA-256 файла.
-    keep_original=True — отдельное согласие хранить полный оригинал, включая
-    невыбранные строки и листы.
-    """
-    row = _staged(conn, owner_user_id, upload_id)
-    if row["status"] != "staged":
-        raise UploadError("этот файл уже сохранён")
+def commit(conn, staging_root: Path, owner_user_id: int, upload_id: str, selected: list[tuple[str, int]], *,
+           consent_basis: str, consent_confirmed: bool, keep_original: bool = False) -> CommitResult:
+    """Сохранить выбранные строки как закрытые профили; временные файлы загрузки удалить."""
+    st, data = _load(staging_root, owner_user_id, upload_id)
     if not selected:
         raise UploadError("не выбрано ни одной строки")
     if consent_basis not in pr.CONSENT_BASES or not consent_confirmed:  # до записи первой строки
         raise UploadError("укажите основание загрузки и подтвердите право на загрузку профилей")
-    preview = preview_of(conn, owner_user_id, upload_id)
+    preview = im.build_preview(st.filename, data, st.panel_choice, existing=_existing(conn, owner_user_id))
     by_key = {(r.sheet, r.row_number): (r, s) for s in preview.sheets for r in s.records}
     chosen = []
     for key in selected:
@@ -102,20 +90,22 @@ def commit(conn, owner_user_id: int, upload_id: int, selected: list[tuple[str, i
         if sheet.error:
             raise UploadError(f"лист {sheet.name}: {sheet.error}")
         chosen.append((rec, sheet))
-    ids = []
+    file_id = None
+    if keep_original:  # отдельное согласие: полный файл, включая невыбранные строки и листы
+        file_id = conn.execute(
+            """INSERT INTO import_files(owner_user_id, filename, sha256, size_bytes, content, panel_choice,
+                   status, keep_original, keep_original_at)
+               VALUES (?,?,?,?,?,?,'committed',1, strftime('%Y-%m-%dT%H:%M:%SZ','now'))""",
+            (owner_user_id, st.filename, st.sha256, st.size, data, st.panel_choice)).lastrowid
+    result = CommitResult(original_kept=keep_original)
     for rec, sheet in chosen:
-        pid = pr.create_profile(
+        result.profile_ids.append(pr.create_profile(
             conn, owner_user_id, rec.positions, consent_basis=consent_basis,
             consent_confirmed=consent_confirmed, source_format="file", kit_id=rec.record_id or None,
             panel_code=sheet.panel_code or None, panel_basis_override=sheet.panel_basis,
-            source={"import_file_id": upload_id, "filename": row["filename"], "file_sha256": row["sha256"],
+            source={"import_file_id": file_id, "filename": st.filename, "file_sha256": st.sha256,
                     "sheet": rec.sheet, "row_number": rec.row_number, "record_id": rec.record_id or None,
-                    "raw_json": im.raw_json(rec)})
-        ids.append(pid)
-    if keep_original:
-        conn.execute("UPDATE import_files SET status = 'committed', keep_original = 1, "
-                     "keep_original_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?", (upload_id,))
-    else:
-        conn.execute("DELETE FROM import_files WHERE id = ?", (upload_id,))  # profile_sources.import_file_id → NULL
-        purge_freed_pages(conn)
-    return ids
+                    "raw_json": im.raw_json(rec)}))
+    staging.delete(staging_root, upload_id)
+    result.checkpoint = checkpoint_truncate(conn)
+    return result

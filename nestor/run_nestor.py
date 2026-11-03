@@ -24,6 +24,7 @@ def main() -> None:
     if args.port:
         settings = settings.__class__(**{**settings.__dict__, "port": args.port})
     app = NestorApp(settings)
+    app.start_maintenance_timer()  # очистка временных загрузок каждый час
     server = app.make_server()
     url = f"http://{settings.host}:{settings.port}/"
     print(f"NeSToR запущен: {url}  (база: {settings.users_db})")

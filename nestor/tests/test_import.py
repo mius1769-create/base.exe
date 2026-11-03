@@ -108,87 +108,100 @@ class TestXlsx(unittest.TestCase):
 
 class TestUserImport(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.stg = Path(self.tmp.name) / "staging"
         self.conn = new_conn()
         self.addCleanup(self.conn.close)
         self.uid = new_user(self.conn, 1)
         self.csv = ("Kit;" + ";".join(Y12) + "\n" + "K1;" + ";".join(y12_row()) + "\n"
                     + "K2;" + ";".join(y12_row(DYS19="")) + "\n" + "K1;" + ";".join(y12_row()) + "\n").encode()
 
-    def test_stage_preview_commit_selected_rows(self):
-        upload_id, prev = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+    def commit(self, upload, rows, **kw):
+        return ui.commit(self.conn, self.stg, self.uid, upload, rows, consent_basis="own_test",
+                         consent_confirmed=True, **kw)
+
+    def test_staging_is_outside_database(self):
+        upload, prev = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
         self.assertEqual(len(prev.records), 3)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)  # до подтверждения ничего
-        f = self.conn.execute("SELECT * FROM import_files WHERE id=?", (upload_id,)).fetchone()
-        self.assertEqual((f["status"], bytes(f["content"])), ("staged", self.csv))
-        ids = ui.commit(self.conn, self.uid, upload_id, [("CSV", 2), ("CSV", 3)],
-                        consent_basis="own_test", consent_confirmed=True)
-        self.assertEqual(len(ids), 2)
-        p = pr.get_owned(self.conn, self.uid, ids[1])
-        self.assertFalse(p.searchable)                                      # закрыт по умолчанию
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)  # не в базе
+        self.assertEqual((self.stg / f"{upload}.bin").read_bytes(), self.csv)
+
+    def test_commit_selected_rows(self):
+        upload, prev = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        res = self.commit(upload, [("CSV", 2), ("CSV", 3)])
+        self.assertEqual(len(res.profile_ids), 2)
+        self.assertFalse(res.original_kept)
+        self.assertIn(res.checkpoint.status, ("complete", "not_wal", "incomplete"))
+        p = pr.get_owned(self.conn, self.uid, res.profile_ids[1])
+        self.assertFalse(p.searchable)
         self.assertEqual((p.panel_code, p.panel_basis, p.kit_id_private), ("FTDNA_Y12", "recognized", "K2"))
-        self.assertIsNone(p.markers["DYS19"])
-        src = pr.load_source(self.conn, ids[1])
-        self.assertEqual((src["sheet"], src["row_number"], src["file_sha256"]), ("CSV", 3, prev.sha256))
-        self.assertEqual(json.loads(src["raw_json"])["DYS19"], "")
-        with self.assertRaises(ui.UploadError):                             # повторное сохранение того же файла
-            ui.commit(self.conn, self.uid, upload_id, [("CSV", 4)], consent_basis="own_test", consent_confirmed=True)
+        src = pr.load_source(self.conn, res.profile_ids[1])
+        self.assertEqual((src["sheet"], src["row_number"], src["file_sha256"], src["import_file_id"]),
+                         ("CSV", 3, prev.sha256, None))
+        self.assertEqual(list(self.stg.iterdir()), [])                       # временные файлы удалены
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
+        with self.assertRaises(ui.UploadError):                             # загрузка уже израсходована
+            self.commit(upload, [("CSV", 4)])
 
     def test_consent_required_before_any_write(self):
-        upload_id, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        upload, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
         with self.assertRaises(ui.UploadError):
-            ui.commit(self.conn, self.uid, upload_id, [("CSV", 2)], consent_basis="own_test", consent_confirmed=False)
+            ui.commit(self.conn, self.stg, self.uid, upload, [("CSV", 2)], consent_basis="own_test", consent_confirmed=False)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
 
     def test_second_upload_flags_existing_and_does_not_merge(self):
-        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        ui.commit(self.conn, self.uid, u1, [("CSV", 2)], consent_basis="own_test", consent_confirmed=True)
-        u2, prev = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        u1, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        self.commit(u1, [("CSV", 2)])
+        u2, prev = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
         k1 = prev.records[0]
         self.assertTrue(any("те же значения, что у сохранённой записи" in f for f in k1.flags))
         self.assertTrue(any("ID «K1» уже есть" in f for f in k1.flags))
-        ui.commit(self.conn, self.uid, u2, [("CSV", 2)], consent_basis="own_test", consent_confirmed=True)
+        self.commit(u2, [("CSV", 2)])
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 2)  # не объединены
 
-    def test_default_commit_deletes_full_file(self):
-        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        [pid] = ui.commit(self.conn, self.uid, u1, [("CSV", 2)], consent_basis="own_test", consent_confirmed=True)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
-        src = pr.load_source(self.conn, pid)
-        self.assertIsNone(src["import_file_id"])
-        self.assertEqual((src["filename"], src["sheet"], src["row_number"]), ("kits.csv", "CSV", 2))
-        self.assertEqual(src["file_sha256"], im.build_preview("kits.csv", self.csv).sha256)  # SHA-256 всего файла
-
     def test_discard_and_keep_original_lifecycle(self):
-        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        ui.discard(self.conn, self.uid, u1)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
-        u2, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        a, b = ui.commit(self.conn, self.uid, u2, [("CSV", 2), ("CSV", 3)], consent_basis="own_test",
-                         consent_confirmed=True, keep_original=True)
+        u1, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        ui.discard(self.stg, self.uid, u1)
+        self.assertEqual(list(self.stg.iterdir()), [])
+        u2, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        res = self.commit(u2, [("CSV", 2), ("CSV", 3)], keep_original=True)
+        a, b = res.profile_ids
         f = self.conn.execute("SELECT keep_original, keep_original_at, content FROM import_files").fetchone()
         self.assertEqual((f["keep_original"], bytes(f["content"])), (1, self.csv))
         self.assertIsNotNone(f["keep_original_at"])
         pr.delete_profile(self.conn, self.uid, a)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 1)  # нужен профилю b
-        pr.delete_profile(self.conn, self.uid, b)                          # последняя выбранная запись
+        pr.delete_profile(self.conn, self.uid, b)                           # последняя выбранная запись
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profile_sources").fetchone()[0], 0)
 
     def test_new_upload_replaces_unfinished_one(self):
-        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        u2, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        ids = [r[0] for r in self.conn.execute("SELECT id FROM import_files")]
-        self.assertEqual(ids, [u2])
+        u1, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        u2, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
+        self.assertEqual(sorted(p.name for p in self.stg.iterdir()), sorted([f"{u2}.bin", f"{u2}.json"]))
+        with self.assertRaises(ui.UploadError):
+            ui.preview_of(self.conn, self.stg, self.uid, u1)
 
     def test_other_user_cannot_see_upload(self):
-        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        u1, _ = ui.stage(self.conn, self.stg, self.uid, "kits.csv", self.csv)
         stranger = new_user(self.conn, 2)
         with self.assertRaises(ui.UploadError):
-            ui.preview_of(self.conn, stranger, u1)
+            ui.preview_of(self.conn, self.stg, stranger, u1)
+        with self.assertRaises(ui.UploadError):
+            ui.discard(self.stg, stranger, u1)
+        with self.assertRaises(ui.UploadError):
+            ui.preview_of(self.conn, self.stg, self.uid, "../../etc/passwd")
 
 
 class TestUnselectedProfileNotStored(unittest.TestCase):
-    """Книга с двумя персональными профилями; пользователь сохраняет один."""
+    """Книга с двумя персональными профилями; пользователь сохраняет один.
+
+    Побайтовая проверка файлов приложения (база, WAL, SHM, временная папка) —
+    это проверка того, что приложение не оставляет данные в своих файлах,
+    а не доказательство стирания с носителя.
+    """
 
     SECRET_B = "PERSON-B-ZX9Q"
     NOTE_B = "Петров-Пётр-отец-1931"
@@ -198,6 +211,7 @@ class TestUnselectedProfileNotStored(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "users.db"
+        self.stg = Path(self.tmp.name) / "staging"
         self.conn = db.connect(self.path)
         self.addCleanup(self.conn.close)
         self.uid = new_user(self.conn, 1)
@@ -206,55 +220,66 @@ class TestUnselectedProfileNotStored(unittest.TestCase):
                       ["PERSON-A-7Q1", "мой тест"] + y12_row(),
                       [self.SECRET_B, self.NOTE_B] + y12_row(DYS19="16", DYS390="23")]})
 
-    def db_bytes(self) -> bytes:
+    def app_bytes(self, include_staging=True) -> bytes:
         out = b""
         for suffix in ("", "-wal", "-shm"):
             f = Path(str(self.path) + suffix)
             if f.exists():
                 out += f.read_bytes()
+        if include_staging and self.stg.exists():
+            for f in self.stg.iterdir():
+                out += f.read_bytes()
         return out
 
     def assert_b_absent(self):
-        blob = self.db_bytes()
+        blob = self.app_bytes()
         for text in (self.SECRET_B, self.NOTE_B):
             self.assertNotIn(text.encode("utf-8"), blob, text)
         self.assertNotIn(self.book, blob)
 
+    def stage(self):
+        return ui.stage(self.conn, self.stg, self.uid, "family.xlsx", self.book)
+
+    def commit(self, upload, **kw):
+        return ui.commit(self.conn, self.stg, self.uid, upload, [("Семья", 2)], consent_basis="own_test",
+                         consent_confirmed=True, **kw)
+
     def test_only_selected_row_kept(self):
-        upload, prev = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
+        upload, prev = self.stage()
         self.assertEqual(len(prev.records), 2)
-        self.assertIn(self.SECRET_B.encode(), self.db_bytes())             # временно — пока ждёт решения
-        [pid] = ui.commit(self.conn, self.uid, upload, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True)
-        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
-        src = pr.load_source(self.conn, pid)
+        self.assertNotIn(self.SECRET_B.encode(), self.app_bytes(include_staging=False))  # временно — не в базе
+        res = self.commit(upload)
+        self.assertEqual(res.checkpoint.status, "complete")              # результат проверен, а не предполагается
+        src = pr.load_source(self.conn, res.profile_ids[0])
         self.assertEqual(json.loads(src["raw_json"])["Sample"], "PERSON-A-7Q1")
         self.assertEqual(src["file_sha256"], prev.sha256)
         self.assert_b_absent()
 
     def test_cancel_removes_temporary_file(self):
-        upload, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
-        ui.discard(self.conn, self.uid, upload)
+        upload, _ = self.stage()
+        ui.discard(self.stg, self.uid, upload)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
         self.assert_b_absent()
 
     def test_reimport_after_commit_and_delete_last(self):
-        u1, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
-        [pid] = ui.commit(self.conn, self.uid, u1, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True)
-        u2, prev = ui.stage(self.conn, self.uid, "family.xlsx", self.book)   # повторный импорт того же файла
+        u1, _ = self.stage()
+        [pid] = self.commit(u1).profile_ids
+        u2, prev = self.stage()                                            # повторный импорт того же файла
         a, b = prev.records
         self.assertTrue(any("ID «PERSON-A-7Q1» уже есть" in f for f in a.flags))
         self.assertFalse(any("уже есть" in f for f in b.flags))
-        ui.discard(self.conn, self.uid, u2)
+        ui.discard(self.stg, self.uid, u2)
         self.assert_b_absent()
-        pr.delete_profile(self.conn, self.uid, pid)                          # последняя выбранная запись
+        ck = pr.delete_profile(self.conn, self.uid, pid)                    # последняя выбранная запись
+        self.assertEqual(ck.status, "complete")
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profile_sources").fetchone()[0], 0)
-        self.assertNotIn(b"PERSON-A-7Q1", self.db_bytes())
+        self.assertNotIn(b"PERSON-A-7Q1", self.app_bytes())
 
     def test_keep_original_requires_explicit_consent(self):
-        u1, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
-        ui.commit(self.conn, self.uid, u1, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True,
-                  keep_original=True)
-        self.assertIn(self.SECRET_B.encode(), self.db_bytes())             # по согласию — полный файл со строкой B
+        u1, _ = self.stage()
+        res = self.commit(u1, keep_original=True)
+        self.assertTrue(res.original_kept)
+        self.assertIn(self.SECRET_B.encode(), self.app_bytes(include_staging=False))  # только по согласию
 
 
 class TestCandidates(unittest.TestCase):

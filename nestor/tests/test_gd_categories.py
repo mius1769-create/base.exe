@@ -172,6 +172,7 @@ class TestMigrationV5(unittest.TestCase):
             c.commit()
             c.close()
             conn = db.connect(path)
+            # v5: сохранённые без согласия файлы удаляются; v6: незавершённые загрузки больше не хранятся в базе
             rows = [tuple(r) for r in conn.execute("SELECT filename, status, keep_original FROM import_files")]
-            self.assertEqual(rows, [("pending.csv", "staged", 0)])
+            self.assertEqual(rows, [])
             conn.close()

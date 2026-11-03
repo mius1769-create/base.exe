@@ -196,7 +196,7 @@ class TestWebImport(TestWebSmoke):
             "Origin": self.base, "Content-Type": f"multipart/form-data; boundary={boundary}"})
         with owner.open(req) as r:
             url, page = r.geturl(), r.read().decode()
-        self.assertRegex(url, r"/import/\d+$")
+        self.assertRegex(url, r"/import/[0-9a-f]{32}$")
         self.assertIn("FTDNA Y37 (распознана)", page)
         self.assertIn("Профилей: <b>1</b>", page)
         import hashlib

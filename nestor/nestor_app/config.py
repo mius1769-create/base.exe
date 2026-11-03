@@ -24,6 +24,7 @@ class Settings:
     secret_file: Path
     manifest_file: Path
     host: str = "127.0.0.1"
+    staging_dir: Path | None = None  # временные загрузки; по умолчанию var/staging
     port: int = 8765
 
 
@@ -35,6 +36,7 @@ def load_settings(var_dir: str | os.PathLike | None = None) -> Settings:
         users_db=base / "nestor_users.db",
         secret_file=base / "server_secret.key",
         manifest_file=NESTOR_ROOT / "data" / "MANIFEST.json",
+        staging_dir=base / "staging",
         port=int(os.environ.get("NESTOR_PORT", "8765")),
     )
 
