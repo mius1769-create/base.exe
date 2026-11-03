@@ -31,13 +31,17 @@ jobs:
       # что каталог временных загрузок недоступен другим пользователям.
       - name: Create unprivileged probe user
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $pw = "Nq7!" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "aZ"
           Write-Output "::add-mask::$pw"
-          net user nestor_probe $pw /add | Out-Null
-          "NESTOR_PROBE_USER=nestor_probe" >> $env:GITHUB_ENV
-          "NESTOR_PROBE_PASSWORD=$pw" >> $env:GITHUB_ENV
+          $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+          New-LocalUser -Name "nestor_probe" -Password $sec -AccountNeverExpires -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID "S-1-5-32-545" -Member "nestor_probe"
+          $admins = Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.Name -like "*\nestor_probe" }
+          if ($admins) { throw "probe user must not be an administrator" }
+          "NESTOR_PROBE_USER=nestor_probe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "NESTOR_PROBE_PASSWORD=$pw" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Unit tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
