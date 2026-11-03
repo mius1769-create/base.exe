@@ -68,10 +68,10 @@ jobs:
           Copy-Item -Recurse -Force nestor "$out\app"
           function New-ProbeUser([string]$name) {
             $pw = "Nq7!" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "aZ"
-            Write-Output "::add-mask::$pw"
+            Write-Host "::add-mask::$pw"   # Write-Host: не попадает в возвращаемое значение функции
             $sec = ConvertTo-SecureString $pw -AsPlainText -Force
             New-LocalUser -Name $name -Password $sec -AccountNeverExpires -PasswordNeverExpires | Out-Null
-            Add-LocalGroupMember -SID "S-1-5-32-545" -Member $name
+            Add-LocalGroupMember -SID "S-1-5-32-545" -Member $name | Out-Null
             if (Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.Name -like "*\$name" }) { throw "$name is an administrator" }
             return New-Object System.Management.Automation.PSCredential(".\$name", $sec)
           }
