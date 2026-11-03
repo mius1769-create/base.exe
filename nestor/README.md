@@ -109,10 +109,11 @@ py -3 tools/qc_reference.py ПУТЬ\К\Nestor_scientific_YSTR.db --summary docs
 py -3 tools/render_source_audit.py
 ```
 
-Сверка NIST, когда будут Table S4 и файл из NIST PDR (имена колонок — как в файлах):
+Сверка NIST с Table S4 из NIST PDR (результат — docs/NIST_RECONCILIATION.json,
+построчные аннотации — только локально в var/):
 
 ```bash
-py -3 tools/nist_reconcile.py --candidate ПУТЬ\К\Nestor_scientific_YSTR.db --table-s4 ПУТЬ\К\TableS4.xlsx --pdr ПУТЬ\К\PDR.xlsx --id-col "Sample ID" --group-col "Population" --summary docs/NIST_RECONCILIATION.json --groups var/nist_group_labels.csv
+py -3 tools/nist_reconcile.py --candidate ПУТЬ\К\Nestor_scientific_YSTR.db --table-s4 "ПУТЬ\К\Table S4. Allele call table.xlsx" --s4-sheet "Table S4." --id-col Sample --font-flag FF0070C0=father_son_substitution --summary docs/NIST_RECONCILIATION.json --groups var/nist_annotations.csv
 ```
 
 ## Известные ограничения
