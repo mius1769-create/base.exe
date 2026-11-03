@@ -1,0 +1,288 @@
+{
+  "archive": {
+    "delivery": "5 томов RAR5 «Genopoisk_expert_linux_2026-10-14.tar.partN.rar» (проверка unrar: All OK)",
+    "volumes_sha256": {
+      "part1": "a69dfc5730dadd975f5bb728b44bf78feef3500071ef2fd37d391ca03138c2ee",
+      "part2": "d2106fb803433663b6c5ad730d53ab197170cde1f76d910d8f4221cbef4c2c11",
+      "part3": "01b418653e46dde1d814234d2e4e8b03deea3816c02b36149d7759169db549ac",
+      "part4": "bdfc86e0aea543738004548f7d44d459b9b41e024ab4463ab267e66486a74b3a",
+      "part5": "164e73cd73227785081f30c4ac3bf9bbcacc102d9736517c8864c96f10899d23"
+    },
+    "file": "Genopoisk_expert_linux_2026-10-14.tar.gz",
+    "sha256": "745ca9cdc715c73ff351adee554a7e6259d92d952cfdd0580ac0356cd624d9b5",
+    "size": 65302549
+  },
+  "tar_gz": "Genopoisk_expert_linux_2026-10-14.tar.gz",
+  "expected_sha256": "745ca9cdc715c73ff351adee554a7e6259d92d952cfdd0580ac0356cd624d9b5",
+  "sha256_matches": true,
+  "files": [
+    {
+      "path": "genopoisk-expert/database-maintenance.js",
+      "size": 2750,
+      "sha256": "c521d95f43a32a28bedbb2fdb09fccba45bd0c9576f088bf28ce35f08c430ad8"
+    },
+    {
+      "path": "genopoisk-expert/Dockerfile.verify",
+      "size": 268,
+      "sha256": "d6c589c16f8f5656dda46e71fe9f061b21b6bea9045df710dceb7b6b157ea5ec"
+    },
+    {
+      "path": "genopoisk-expert/EXPERT_CHECKLIST.md",
+      "size": 4329,
+      "sha256": "357fadcaddafeb3a9f7aba34cb9e9b044c0420af6ff6ccec75bc113f80467dec"
+    },
+    {
+      "path": "genopoisk-expert/ISSUES_TEMPLATE.md",
+      "size": 851,
+      "sha256": "560dea01784ad6a352885a7ae98da7fb2022a8f1cf0b07990cc272aad5f9b223"
+    },
+    {
+      "path": "genopoisk-expert/KNOWN_LIMITATIONS.md",
+      "size": 4859,
+      "sha256": "23a5d2bf8e842c6f67c68147dd2282f1f662fbcf7f2ed3716d1da839a395de68"
+    },
+    {
+      "path": "genopoisk-expert/manifest.json",
+      "size": 7104,
+      "sha256": "683fa44adfa535a113f9952d9ed75cffff1805f4aca710b5f653c658c2de9d31"
+    },
+    {
+      "path": "genopoisk-expert/package.json",
+      "size": 339,
+      "sha256": "00d4b597bb57f5d9c2c59fa9a538be057729e18f3df90efef98bca99f94d618f"
+    },
+    {
+      "path": "genopoisk-expert/README.md",
+      "size": 10198,
+      "sha256": "5b1d64398c6fac6b6fd7c89eef39a5033bfc728971d391c6be120edf20d05bce"
+    },
+    {
+      "path": "genopoisk-expert/RELEASE_VALIDATION.json",
+      "size": 2956,
+      "sha256": "1e326623da834e8d2751f76e3320854a34e0e97ef57a97ac406515b2117e5208"
+    },
+    {
+      "path": "genopoisk-expert/scientific-reference.js",
+      "size": 6010,
+      "sha256": "f8938fe1eecc7d5a5f5f05cf9e04d6fae8edd83ec2fe273a607e775b0bc4c70e"
+    },
+    {
+      "path": "genopoisk-expert/server.env.example",
+      "size": 389,
+      "sha256": "8f61082355ebfde64f413ee73c3c51e53a45706c78291b481329b0241c653c09"
+    },
+    {
+      "path": "genopoisk-expert/server.js",
+      "size": 134973,
+      "sha256": "8e4a943e718cbee64c42d1f783501ea36e006077860478983a3c2b5dfdf058a2"
+    },
+    {
+      "path": "genopoisk-expert/start-linux.sh",
+      "size": 747,
+      "sha256": "ef077b438435edbc6ea61519d3c83209bcfb18c166314be6118602be62af3740"
+    },
+    {
+      "path": "genopoisk-expert/THIRD_PARTY.md",
+      "size": 1133,
+      "sha256": "a59d28fe55622d3dc498cf0403ac943d434dd6a7833d3add5ed747c077f51f64"
+    },
+    {
+      "path": "genopoisk-expert/vendor/SheetJS-LICENSE.txt",
+      "size": 11355,
+      "sha256": "4d2a38ac35cda06a555c84074a819d413339cd3691b822cae50f8f322fe01f64"
+    },
+    {
+      "path": "genopoisk-expert/vendor/xlsx.full.min.cjs",
+      "size": 881727,
+      "sha256": "c9506197caf809a075b6dee1da0d36fb19da7158ffe8a88e7b0c96c5d8623c99"
+    },
+    {
+      "path": "genopoisk-expert/tests/cousins.mjs",
+      "size": 7002,
+      "sha256": "8ad1da518bef0b86c3f6c89b1e3fd052db8f42730a927a5a9b5768338be903c8"
+    },
+    {
+      "path": "genopoisk-expert/tests/portable.mjs",
+      "size": 7908,
+      "sha256": "e917cfe4c9ab11492f24d3749db0a30ba4410f2bca594d54d845429307e84d70"
+    },
+    {
+      "path": "genopoisk-expert/tests/smoke.mjs",
+      "size": 44786,
+      "sha256": "ba2fc215d756de38c783e6e5d5501006d60bfd05eff4da4f3477c7f7ae417563"
+    },
+    {
+      "path": "genopoisk-expert/scripts/init-master.cjs",
+      "size": 1016,
+      "sha256": "904f46775ac0b77b2d2ab76c38fe8c946f02be9ab5d6ce2c5fadc34ef44f7f5e"
+    },
+    {
+      "path": "genopoisk-expert/scripts/preflight.cjs",
+      "size": 1283,
+      "sha256": "92f17db1d9dd655620a51c089a4a77b5ccc845dd4af8b6ec2e90bc30b78c2e1d"
+    },
+    {
+      "path": "genopoisk-expert/scripts/run-server.cjs",
+      "size": 553,
+      "sha256": "2b15e0c4c1e51fbc00d87e41e894cedcf6b8fd8716613eef4612f9692f7037cd"
+    },
+    {
+      "path": "genopoisk-expert/scripts/verify-manifest.cjs",
+      "size": 724,
+      "sha256": "e13acb8addca6757aefcabef2f559ab54af3979ff77fff1fc3b6df344c57bbe2"
+    },
+    {
+      "path": "genopoisk-expert/reference/places-seed.sqlite",
+      "size": 172150784,
+      "sha256": "a9e80c0536ba3588ea916fdc139966bc2ae2fbf6933b3ddf1ef915d73439e0d4"
+    },
+    {
+      "path": "genopoisk-expert/reference/scientific.sqlite",
+      "size": 255877120,
+      "sha256": "98a9941661d1461bdda478fed77426fca19c1fca80e85fa899ee1a8b1906be9e"
+    },
+    {
+      "path": "genopoisk-expert/reference/scientific_bibliography_catalog.json",
+      "size": 17523,
+      "sha256": "a7c2f54bfa25d91cc634f54ed26a7f09581dc9f8e83d00870e8a20a40aaaa2ac"
+    },
+    {
+      "path": "genopoisk-expert/public/app.js",
+      "size": 131066,
+      "sha256": "3e4dc07ad81d5e7d99c7a1ab14b58789c454a420b1a121ee69e4a589cee28854"
+    },
+    {
+      "path": "genopoisk-expert/public/index.html",
+      "size": 2120,
+      "sha256": "cb3c8f21598633b32742342ed1af8201a64dac05672996d1ee38a75c3980a6ec"
+    },
+    {
+      "path": "genopoisk-expert/public/panels.json",
+      "size": 10066,
+      "sha256": "822f890e3c80f0b81d12a659ea7688136eb026138b11f21e5cbabffe8f7f69d5"
+    },
+    {
+      "path": "genopoisk-expert/public/predictor.js",
+      "size": 4772,
+      "sha256": "f512debd3067f190102da200044415c6959731bf41d5ba2044a053291a4fdb75"
+    },
+    {
+      "path": "genopoisk-expert/public/sample_genopoisk_y37.csv",
+      "size": 351,
+      "sha256": "539744b6bfb6f7cb55117fd4005a09b696cac1a781337d6f7fec3b9e2b5109f2"
+    },
+    {
+      "path": "genopoisk-expert/public/styles.css",
+      "size": 38627,
+      "sha256": "6223eb95fac5c1c93c3d4b0ef5484684fa5f89ef525cf56c25d7a5975a04dfdb"
+    },
+    {
+      "path": "genopoisk-expert/examples/-111-STR-.csv",
+      "size": 1067,
+      "sha256": "5a8057ee0ba6e35bdbe91eacd38d231345512e56586fc285fdb418b203b7da8c"
+    },
+    {
+      "path": "genopoisk-expert/examples/FTDNA-Y111.csv",
+      "size": 1067,
+      "sha256": "5a8057ee0ba6e35bdbe91eacd38d231345512e56586fc285fdb418b203b7da8c"
+    },
+    {
+      "path": "genopoisk-expert/examples/FTDNA-Y12.csv",
+      "size": 120,
+      "sha256": "03bcb645ff6a2cd93d8bb78e032190cca3cb832142f6b73bc96e9dcb36e64aed"
+    },
+    {
+      "path": "genopoisk-expert/examples/FTDNA-Y25.csv",
+      "size": 222,
+      "sha256": "f25ad30f0abaee1f5d8a7f7ead3fafbeee0620d338ad6c7a83701ec0fcded624"
+    },
+    {
+      "path": "genopoisk-expert/examples/FTDNA-Y37.csv",
+      "size": 327,
+      "sha256": "23092744032510ddd1e5484fffeee4c64d8c500a1df94c1c5402ecb5e585e442"
+    },
+    {
+      "path": "genopoisk-expert/examples/FTDNA-Y67.csv",
+      "size": 617,
+      "sha256": "ff28362b726c2c0d162eb7afa4a82d4fee6353a84cb15dc49c6b4e632a1cc2d3"
+    },
+    {
+      "path": "genopoisk-expert/examples/Genopoisk-Y37.csv",
+      "size": 356,
+      "sha256": "d01b380be80879e7537c4d3b350fe194f4e483716e52627be926d3b82dca6dd7"
+    },
+    {
+      "path": "genopoisk-expert/examples/Genopoisk-Y50.csv",
+      "size": 513,
+      "sha256": "185291cb93465bf98ccedc8d3e4c8c5f0f5e37df816d545d155164e906af7c7f"
+    },
+    {
+      "path": "genopoisk-expert/examples/README.txt",
+      "size": 104,
+      "sha256": "f4f69a15d4c356cd2d3c71bd2892eac503b1cb66340c32c79d6fc4d13069f07b"
+    },
+    {
+      "path": "genopoisk-expert/examples/Strelka-Y111.csv",
+      "size": 1067,
+      "sha256": "5a8057ee0ba6e35bdbe91eacd38d231345512e56586fc285fdb418b203b7da8c"
+    },
+    {
+      "path": "genopoisk-expert/deploy/genopoisk.service",
+      "size": 473,
+      "sha256": "31e8ce5b424552a368a7ff06170be9f7343c08413feca4af9e409d3ba024344d"
+    },
+    {
+      "path": "genopoisk-expert/data/README.txt",
+      "size": 84,
+      "sha256": "a1bfc9bbc6908cd37d064fdee62cdeeb735aaf44c678f1f8b79660ed6ef869bc"
+    },
+    {
+      "path": "genopoisk-expert/config/ethnicities.json",
+      "size": 3171,
+      "sha256": "aaa120fc136910866f631b7f0bcee7aff2662840cbb4117bc2c7c06826b26611"
+    },
+    {
+      "path": "genopoisk-expert/config/panels.json",
+      "size": 10066,
+      "sha256": "822f890e3c80f0b81d12a659ea7688136eb026138b11f21e5cbabffe8f7f69d5"
+    }
+  ],
+  "file_count": 46,
+  "manifests": [
+    {
+      "manifest": "genopoisk-expert/manifest.json",
+      "entries": 45,
+      "ok": 45,
+      "mismatch": [],
+      "missing": []
+    }
+  ],
+  "sqlite": [
+    {
+      "path": "genopoisk-expert/reference/places-seed.sqlite",
+      "sha256": "a9e80c0536ba3588ea916fdc139966bc2ae2fbf6933b3ddf1ef915d73439e0d4",
+      "integrity_check": "ok",
+      "tables": {
+        "places": 305474
+      }
+    },
+    {
+      "path": "genopoisk-expert/reference/scientific.sqlite",
+      "sha256": "98a9941661d1461bdda478fed77426fca19c1fca80e85fa899ee1a8b1906be9e",
+      "integrity_check": "ok",
+      "tables": {
+        "marker_calls": 895644,
+        "profile_coverage": 45389,
+        "profile_publication_links": 3,
+        "profiles": 45389,
+        "publications": 42,
+        "source_files": 29,
+        "source_publication_links": 29,
+        "source_reference_labels": 23,
+        "source_reference_publications": 16,
+        "sources": 30
+      }
+    }
+  ],
+  "note": "Сводка tools/audit_archive.py. Архив распакован вне репозитория (scratchpad), код не исполнялся, базы не импортировались."
+}

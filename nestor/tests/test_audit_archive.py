@@ -80,3 +80,27 @@ class TestAuditArchive(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRecordedArchiveAudit(unittest.TestCase):
+    """Зафиксированные результаты аудита реального архива (docs/ARCHIVE_AUDIT.json)."""
+
+    def test_recorded_results(self):
+        d = json.loads((ROOT / "docs" / "ARCHIVE_AUDIT.json").read_text(encoding="utf-8"))
+        self.assertEqual(d["archive"]["sha256"], "745ca9cdc715c73ff351adee554a7e6259d92d952cfdd0580ac0356cd624d9b5")
+        self.assertTrue(d["sha256_matches"])
+        self.assertEqual(d["file_count"], 46)
+        m = d["manifests"][0]
+        self.assertEqual((m["entries"], m["ok"], m["mismatch"], m["missing"]), (45, 45, [], []))
+        sci = next(x for x in d["sqlite"] if x["path"].endswith("scientific.sqlite"))
+        self.assertEqual((sci["integrity_check"], sci["tables"]["profiles"]), ("ok", 45389))
+        self.assertTrue(all(x["integrity_check"] == "ok" for x in d["sqlite"]))
+        self.assertFalse((ROOT / "data" / "MANIFEST.json").exists())  # снимок не выбран
+
+    def test_preliminary_calibration_not_approved(self):
+        rules = json.loads((ROOT / "data" / "transform_rules.json").read_text(encoding="utf-8"))["rules"]
+        by_id = {r["rule_id"]: r for r in rules}
+        for rid in ("T12-genopoisk-y37-gatah4", "T13-genopoisk-y50-offsets", "T15-scientific-other-scale"):
+            self.assertEqual(by_id[rid]["calibration"], "preliminary")
+            self.assertEqual(by_id[rid]["status"], "proposed")
+            self.assertIn("server.js", by_id[rid]["basis"])
