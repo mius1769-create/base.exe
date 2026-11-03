@@ -28,18 +28,54 @@ class Settings:
     port: int = 8765
 
 
+def windows_local_appdata() -> Path | None:
+    """Локальный AppData ТЕКУЩЕГО пользователя по его токену (SHGetKnownFolderPath).
+
+    Переменной LOCALAPPDATA доверять нельзя: процесс, запущенный от другой учётной
+    записи (runas, Start-Process -Credential), может унаследовать окружение запустившего.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                        ("Data4", ctypes.c_ubyte * 8)]
+
+        folder = GUID(0xF1B32785, 0x6FBA, 0x4FCF, (ctypes.c_ubyte * 8)(0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91))
+        shell32, ole32 = ctypes.WinDLL("shell32"), ctypes.WinDLL("ole32")
+        shell32.SHGetKnownFolderPath.argtypes = [ctypes.POINTER(GUID), wintypes.DWORD, wintypes.HANDLE,
+                                                 ctypes.POINTER(ctypes.c_void_p)]
+        shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+        ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+        ptr = ctypes.c_void_p()
+        if shell32.SHGetKnownFolderPath(ctypes.byref(folder), 0, None, ctypes.byref(ptr)) != 0:
+            return None
+        try:
+            return Path(ctypes.wstring_at(ptr.value))
+        finally:
+            ole32.CoTaskMemFree(ptr)
+    except (OSError, AttributeError):
+        return None
+
+
 def default_staging_dir(var_dir: Path) -> Path:
     """Каталог временных загрузок.
 
     NESTOR_STAGING_DIR — явное значение. Иначе на Windows — внутри локального
-    профиля пользователя (%LOCALAPPDATA%/NeSToR/staging), на остальных ОС — var/staging.
+    профиля текущего пользователя (Local AppData по токену, см. windows_local_appdata;
+    …/NeSToR/staging), на остальных ОС — var/staging.
     ACL / права задаются и проверяются в nestor_app.secure_dir.
     """
     explicit = os.environ.get("NESTOR_STAGING_DIR")
     if explicit:
         return Path(explicit)
-    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
-        return Path(os.environ["LOCALAPPDATA"]) / "NeSToR" / "staging"
+    if os.name == "nt":
+        local = windows_local_appdata() or (Path(os.environ["LOCALAPPDATA"]) if os.environ.get("LOCALAPPDATA") else None)
+        if local:
+            return local / "NeSToR" / "staging"
     return var_dir / "staging"
 
 

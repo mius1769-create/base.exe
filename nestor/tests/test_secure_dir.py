@@ -120,8 +120,12 @@ class TestWindows(unittest.TestCase):
         from nestor_app.config import default_staging_dir
         if os.environ.get("NESTOR_STAGING_DIR"):
             self.skipTest("задан NESTOR_STAGING_DIR")
+        from nestor_app.config import windows_local_appdata
         d = default_staging_dir(Path(self.tmp.name))
-        self.assertEqual(Path(os.environ["LOCALAPPDATA"]) / "NeSToR" / "staging", d)
+        local = windows_local_appdata()
+        self.assertIsNotNone(local)                                     # по токену, не из окружения
+        self.assertEqual(local / "NeSToR" / "staging", d)
+        self.assertEqual(os.path.normcase(str(local)), os.path.normcase(os.environ["LOCALAPPDATA"]))
 
 
 def _probe_password():

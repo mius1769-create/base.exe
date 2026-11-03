@@ -53,13 +53,59 @@ jobs:
         shell: bash
         run: python run_nestor.py --check-staging --var-dir "$RUNNER_TEMP/nestor-var"
 
+      # NeSToR от ОБЫЧНОЙ учётной записи (не Administrators, не RID 500) и проверка,
+      # что вторая обычная учётная запись не читает её каталог загрузок.
+      # Учётные записи существуют только в этом одноразовом runner; пароли не покидают шаг.
+      - name: Run NeSToR as unprivileged users
+        if: runner.os == 'Windows'
+        shell: powershell
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "C:\nestor_ci"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          icacls $out /grant "*S-1-5-32-545:(OI)(CI)M" | Out-Null
+          Copy-Item -Recurse -Force nestor "$out\app"
+          function New-ProbeUser([string]$name) {
+            $pw = "Nq7!" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "aZ"
+            Write-Output "::add-mask::$pw"
+            $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+            New-LocalUser -Name $name -Password $sec -AccountNeverExpires -PasswordNeverExpires | Out-Null
+            Add-LocalGroupMember -SID "S-1-5-32-545" -Member $name
+            if (Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.Name -like "*\$name" }) { throw "$name is an administrator" }
+            return New-Object System.Management.Automation.PSCredential(".\$name", $sec)
+          }
+          function Invoke-As($cred, [string[]]$pyArgs, [string]$tag) {
+            $py = (Get-Command python).Source
+            $p = Start-Process -FilePath $py -ArgumentList $pyArgs -Credential $cred -LoadUserProfile `
+                   -WorkingDirectory "$out\app" -RedirectStandardOutput "$out\$tag.out" `
+                   -RedirectStandardError "$out\$tag.err" -Wait -PassThru
+            Write-Output "===== $tag (exit $($p.ExitCode)) ====="
+            Get-Content "$out\$tag.out" -Encoding UTF8
+            Get-Content "$out\$tag.err" -Encoding UTF8
+            if ($p.ExitCode -ne 0) { throw "$tag failed with exit code $($p.ExitCode)" }
+          }
+          try {
+            $main = New-ProbeUser "nestor_main"
+            $other = New-ProbeUser "nestor_other"
+            Invoke-As $main @("tools/ci_windows_probe.py", "main", "--out", $out) "main"
+            Invoke-As $main @("run_nestor.py", "--check-staging", "--var-dir", "$out\check-var") "check-staging-main"
+            Invoke-As $other @("tools/ci_windows_probe.py", "other", "--out", $out) "other"
+          } finally {
+            foreach ($n in "nestor_main", "nestor_other") { Remove-LocalUser -Name $n -ErrorAction SilentlyContinue }
+          }
+
       # Удаление учётной записи и файла с паролем — при успехе и при ошибке.
       - name: Remove probe user
         if: always() && runner.os == 'Windows'
         shell: powershell
         run: |
-          Remove-LocalUser -Name "nestor_probe" -ErrorAction SilentlyContinue
+          $names = "nestor_probe", "nestor_main", "nestor_other"
+          foreach ($n in $names) { Remove-LocalUser -Name $n -ErrorAction SilentlyContinue }
+          Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -match "\\nestor_(probe|main|other)" } |
+            Remove-CimInstance -ErrorAction SilentlyContinue
           if ($env:NESTOR_PROBE_PASSWORD_FILE) { Remove-Item -Force -ErrorAction SilentlyContinue $env:NESTOR_PROBE_PASSWORD_FILE }
-          if (Get-LocalUser -Name "nestor_probe" -ErrorAction SilentlyContinue) { throw "probe user still exists" }
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "C:\nestor_ci"
+          foreach ($n in $names) { if (Get-LocalUser -Name $n -ErrorAction SilentlyContinue) { throw "$n still exists" } }
           if ($env:NESTOR_PROBE_PASSWORD_FILE -and (Test-Path $env:NESTOR_PROBE_PASSWORD_FILE)) { throw "password file still exists" }
-          Write-Output "probe user and password file removed"
+          Write-Output "probe users, their profiles and password file removed"
