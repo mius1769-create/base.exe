@@ -55,7 +55,7 @@ def render() -> str:
             qc_txt += "; на уровне источника: " + ", ".join(src_level)
         match = s["scenarios"]["genealogical_matching"]
         L.append(f"| {short(s['source'])} | {s['records']} | {s['dataset']['table']} (`{s['dataset']['raw_file']}`) "
-                 f"| {rights} | {s['attribution']} | {qc_txt} | {match['verdict']}: {match['basis']} | **{s['decision']}** |")
+                 f"| {rights} | {s['attribution']} | {qc_txt} | {match['verdict']}: {match['basis']} | **{s['decision']}**{(' — ' + s['status_detail']) if s.get('status_detail') else ''} |")
     L.append("")
     summ = a["summary"]
     L.append("Итого: " + "; ".join(f"{k} — {v} записей" for k, v in summ.items()) + ". "
@@ -75,6 +75,12 @@ def render() -> str:
         L.append(f"### {short(s['source'])}\n")
         L.append(f"* **Публикация:** {s['citation']} doi:{s['doi']}")
         L.append(f"* **Набор данных:** {d['table']}, файл `{d['raw_file']}`; первичное место: {d['primary_location']}")
+        if s.get("provenance"):
+            pv = s["provenance"]
+            L.append(f"* **Происхождение и состав:** {pv['statement']}")
+            for e in pv["evidence"]:
+                L.append(f"  * [{e['kind']}]({e['url']}): {e['text']}")
+            L.append(f"  * Построчная сверка: {pv['row_level_reconciliation']}")
         L.append(f"* **Условия набора:** {d['dataset_terms']['statement']}")
         for e in d["dataset_terms"].get("evidence", []):
             L.append(f"  * [{e['kind']}]({e['url']}): {e['text']}")
@@ -90,7 +96,8 @@ def render() -> str:
         L.append("* **Качество (сырые значения не менялись):**")
         for item in s["quality"]:
             L.append(f"  * {item}")
-        L.append(f"* **Решение:** {s['decision']}. Нужно: " + "; ".join(s["needed"]) + "\n")
+        detail = f" ({s['status_detail']})" if s.get("status_detail") else ""
+        L.append(f"* **Решение:** {s['decision']}{detail}. Нужно: " + "; ".join(s["needed"]) + "\n")
 
     L.append("## QC: коды проверок\n")
     for code, name in qc["checks"].items():

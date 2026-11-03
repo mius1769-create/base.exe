@@ -53,6 +53,12 @@ class TestSourceAudit(unittest.TestCase):
         self.assertIn("10.18434/t4/1500024", terms["statement"])
         self.assertIn("nist.gov/open/license", terms["statement"])
         self.assertIn("группы", " ".join(nist["quality"]))
+        self.assertTrue(nist["provenance"]["confirmed"])
+        self.assertEqual(nist["status_detail"],
+                         "происхождение и состав подтверждены, использование в NeSToR ожидает проверки условий")
+        self.assertFalse(terms["confirmed"])
+        self.assertIn("лицензия статьи", terms["statement"])
+        self.assertEqual(nist["decision"], "ждём подтверждения")
 
     def test_transform_rules_have_basis_and_are_not_applied(self):
         ids = [r["rule_id"] for r in RULES["rules"]]

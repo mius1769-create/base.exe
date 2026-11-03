@@ -1,0 +1,182 @@
+"""Сверка NIST 1032: кандидат ↔ Table S4 ↔ версия NIST PDR. Только чтение.
+
+  py -3 tools/nist_reconcile.py --candidate Nestor_scientific_YSTR.db \
+      --table-s4 TableS4.xlsx [--s4-sheet ЛИСТ] --pdr PDR_file.xlsx [--pdr-sheet ЛИСТ] \
+      --id-col "Sample ID" --group-col "Population" [--header-row N] \
+      --summary docs/NIST_RECONCILIATION.json --groups var/nist_group_labels.csv
+
+Что делает:
+  * сопоставляет записи по идентификатору образца (в кандидате — `NIST1032|<ID>`);
+  * по каждому локусу сравнивает значения кандидата с Table S4 и Table S4 с PDR
+    как текст, после удаления пробелов; ничего не исправляет;
+  * собирает метки групп ТОЛЬКО из первичного файла (PDR, иначе Table S4) —
+    как записаны, без объединения и переименования, с файлом, SHA-256 и номером
+    строки; результат пишется отдельно (--groups), кандидат не меняется;
+  * считает численность групп для сверки с тем, что указано в статье.
+Если колонка группы в первичных файлах отсутствует, метки не назначаются.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import csv
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from inspect_reference import open_ro, sha256_file  # noqa: E402
+from xlsx_read import read_sheet  # noqa: E402
+
+PREFIX = "NIST1032|"
+ALIASES = {"Y GATA H4": "Y-GATA-H4", "GATA H4": "Y-GATA-H4", "YGATAH4": "Y-GATA-H4", "Y-GATA-H4": "Y-GATA-H4"}
+
+
+def _norm_locus(name: str) -> str:
+    n = name.strip()
+    return ALIASES.get(n, ALIASES.get(n.upper(), n.upper().replace(" ", "")))
+
+
+def _norm_value(v) -> str:
+    if isinstance(v, list):
+        return ",".join(_norm_value(x) for x in v)
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v).replace(" ", "").replace("/", ",").replace("-", ",")
+
+
+def load_table(path: Path, sheet: str | None, id_col: str, header_row: int | None):
+    rows = read_sheet(path, sheet)
+    if header_row is None:
+        header_row = next(i for i, r in enumerate(rows) if id_col in [c.strip() for c in r])
+    header = [c.strip() for c in rows[header_row]]
+    idx = header.index(id_col)
+    table = {}
+    for n, r in enumerate(rows[header_row + 1:], start=header_row + 2):
+        if len(r) <= idx or not r[idx].strip():
+            continue
+        rec = {header[i]: (r[i] if i < len(r) else "") for i in range(len(header)) if header[i]}
+        table[r[idx].strip()] = (n, rec)
+    return header, table
+
+
+def load_candidate(db: Path) -> dict[str, dict]:
+    conn = open_ro(db)
+    out = {}
+    for rid, markers in conn.execute("SELECT id, markers FROM samples WHERE id LIKE ?", (PREFIX + '%',)):
+        out[rid[len(PREFIX):] if rid.startswith(PREFIX) else rid] = json.loads(markers)
+    conn.close()
+    return out
+
+
+def compare_values(a: dict[str, str], b: dict[str, str], loci: list[str]):
+    diffs = []
+    for locus in loci:
+        va, vb = a.get(locus, ""), b.get(locus, "")
+        if va != vb:
+            diffs.append((locus, va, vb))
+    return diffs
+
+
+def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_col: str | None,
+              s4_sheet=None, pdr_sheet=None, header_row=None):
+    cand = load_candidate(candidate)
+    s4_header, s4_rows = load_table(s4, s4_sheet, id_col, header_row)
+    loci_cols = {h: _norm_locus(h) for h in s4_header if h and h not in (id_col, group_col)}
+    s4_norm = {sid: {loci_cols[h]: _norm_value(v.strip()) for h, v in rec.items() if h in loci_cols}
+               for sid, (_, rec) in s4_rows.items()}
+    cand_norm = {sid: {_norm_locus(k): _norm_value(v) for k, v in m.items()} for sid, m in cand.items()}
+    loci = sorted(set(loci_cols.values()))
+    cand_loci = sorted({k for m in cand_norm.values() for k in m})
+
+    summary: dict = {
+        "files": {"candidate": {"name": candidate.name, "sha256": sha256_file(candidate)},
+                  "table_s4": {"name": s4.name, "sha256": sha256_file(s4)}},
+        "counts": {"candidate": len(cand), "table_s4": len(s4_rows)},
+        "ids": {"only_candidate": sorted(set(cand) - set(s4_rows))[:50],
+                "only_table_s4": sorted(set(s4_rows) - set(cand))[:50],
+                "only_candidate_count": len(set(cand) - set(s4_rows)),
+                "only_table_s4_count": len(set(s4_rows) - set(cand))},
+        "loci": {"table_s4": loci, "candidate": cand_loci,
+                 "only_table_s4": sorted(set(loci) - set(cand_loci)),
+                 "only_candidate": sorted(set(cand_loci) - set(loci))},
+    }
+    diff_by_locus = collections.Counter()
+    diff_kinds = collections.Counter()
+    for sid in sorted(set(cand) & set(s4_rows)):
+        for locus, cv, sv in compare_values(cand_norm[sid], s4_norm[sid], loci):
+            diff_by_locus[locus] += 1
+            diff_kinds["в S4 есть, в кандидате пусто" if not cv else
+                       "в S4 пусто, в кандидате есть" if not sv else "значения различаются"] += 1
+            if not sv.replace(",", "").replace(".", "").isdigit() and sv:
+                diff_kinds[f"нечисловое значение в S4: {sv}"] += 1
+    summary["candidate_vs_s4"] = {"differences_by_locus": dict(sorted(diff_by_locus.items())),
+                                  "difference_kinds": dict(diff_kinds.most_common())}
+
+    group_source, group_rows = "table_s4", s4_rows
+    if pdr:
+        pdr_header, pdr_rows = load_table(pdr, pdr_sheet, id_col, header_row)
+        summary["files"]["pdr"] = {"name": pdr.name, "sha256": sha256_file(pdr)}
+        summary["counts"]["pdr"] = len(pdr_rows)
+        pdr_loci = {h: _norm_locus(h) for h in pdr_header if h and h not in (id_col, group_col)}
+        pdr_norm = {sid: {pdr_loci[h]: _norm_value(v.strip()) for h, v in rec.items() if h in pdr_loci}
+                    for sid, (_, rec) in pdr_rows.items()}
+        d = collections.Counter()
+        for sid in sorted(set(pdr_rows) & set(s4_rows)):
+            for locus, _, _ in compare_values(s4_norm[sid], pdr_norm[sid], sorted(set(loci) & set(pdr_loci.values()))):
+                d[locus] += 1
+        summary["s4_vs_pdr"] = {"only_s4": len(set(s4_rows) - set(pdr_rows)),
+                                "only_pdr": len(set(pdr_rows) - set(s4_rows)),
+                                "differences_by_locus": dict(sorted(d.items()))}
+        if group_col and group_col in pdr_header:
+            group_source, group_rows = "pdr", pdr_rows
+
+    labels = []
+    if group_col and any(group_col in rec for _, rec in group_rows.values()):
+        src_file = pdr if group_source == "pdr" else s4
+        sha = sha256_file(src_file)
+        for sid, (rowno, rec) in sorted(group_rows.items()):
+            if sid in cand:
+                labels.append({"record_key": PREFIX + sid, "field": "population_group",
+                               "value": rec.get(group_col, ""), "origin_file": src_file.name,
+                               "origin_sha256": sha, "origin_locator": f"row {rowno}, column {group_col!r}"})
+        summary["groups"] = {"origin": group_source, "column": group_col,
+                             "counts": dict(collections.Counter(x["value"] for x in labels).most_common()),
+                             "unlabeled_candidate_records": len(set(cand) - {x["record_key"][len(PREFIX):] for x in labels})}
+    else:
+        summary["groups"] = {"origin": None, "note": "колонка группы не найдена в первичных файлах — метки не назначены"}
+    return summary, labels
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--candidate", type=Path, required=True)
+    ap.add_argument("--table-s4", type=Path, required=True)
+    ap.add_argument("--s4-sheet")
+    ap.add_argument("--pdr", type=Path)
+    ap.add_argument("--pdr-sheet")
+    ap.add_argument("--id-col", required=True)
+    ap.add_argument("--group-col")
+    ap.add_argument("--header-row", type=int, help="номер строки заголовка (0 — первая); по умолчанию ищется по --id-col")
+    ap.add_argument("--summary", type=Path)
+    ap.add_argument("--groups", type=Path, help="CSV меток групп (отдельно от сырых данных)")
+    a = ap.parse_args(argv)
+    summary, labels = reconcile(a.candidate, a.table_s4, a.pdr, a.id_col, a.group_col,
+                                a.s4_sheet, a.pdr_sheet, a.header_row)
+    text = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+    if a.summary:
+        a.summary.write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    if a.groups and labels:
+        a.groups.parent.mkdir(parents=True, exist_ok=True)
+        with open(a.groups, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=list(labels[0]))
+            w.writeheader()
+            w.writerows(labels)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

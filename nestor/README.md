@@ -86,6 +86,8 @@ nestor/
   tools/inspect_reference.py     паспорт и сверка снимков справочника (только чтение)
   tools/qc_reference.py          QC-отчёт по снимку (только чтение)
   tools/render_source_audit.py   отчёт и таблица решений по источникам
+  tools/nist_reconcile.py        сверка NIST: кандидат ↔ Table S4 ↔ NIST PDR, метки групп из первичного файла
+  tools/xlsx_read.py             чтение .xlsx без внешних пакетов
   data/source_audit.json         решения по источникам и сценариям использования
   data/transform_rules.json      предложенные преобразования (не применены)
   tests/           тесты + synthetic.py + vectors/guest_sampling_v1.json
@@ -105,6 +107,12 @@ py -3 tools/qc_reference.py ПУТЬ\К\Nestor_scientific_YSTR.db --summary docs
 
 ```bash
 py -3 tools/render_source_audit.py
+```
+
+Сверка NIST, когда будут Table S4 и файл из NIST PDR (имена колонок — как в файлах):
+
+```bash
+py -3 tools/nist_reconcile.py --candidate ПУТЬ\К\Nestor_scientific_YSTR.db --table-s4 ПУТЬ\К\TableS4.xlsx --pdr ПУТЬ\К\PDR.xlsx --id-col "Sample ID" --group-col "Population" --summary docs/NIST_RECONCILIATION.json --groups var/nist_group_labels.csv
 ```
 
 ## Известные ограничения

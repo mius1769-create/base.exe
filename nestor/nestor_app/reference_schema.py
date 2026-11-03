@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS derived_values (
     FOREIGN KEY (source_id, record_key) REFERENCES raw_records(source_id, record_key)
 );
 
+-- Сведения из первичных таблиц, которых нет в сырой записи кандидата
+-- (например, популяционная группа NIST). Значение — как в первичном файле.
+CREATE TABLE IF NOT EXISTS record_annotations (
+    source_id       TEXT NOT NULL,
+    record_key      TEXT NOT NULL,
+    field           TEXT NOT NULL,
+    value           TEXT NOT NULL,
+    origin_file     TEXT NOT NULL,
+    origin_sha256   TEXT NOT NULL,
+    origin_locator  TEXT NOT NULL,        -- лист/строка/колонка в первичном файле
+    PRIMARY KEY (source_id, record_key, field),
+    FOREIGN KEY (source_id, record_key) REFERENCES raw_records(source_id, record_key)
+);
+
 CREATE TABLE IF NOT EXISTS qc_findings (
     id          INTEGER PRIMARY KEY,
     check_code  TEXT NOT NULL,
