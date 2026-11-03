@@ -1,0 +1,181 @@
+{
+  "candidate": {
+    "file": "Nestor_scientific_YSTR.db",
+    "sha256": "c6f713b1a0db0966fbabbfaae8fc926934ddd3131fccb591d7686719a7ba7d7d",
+    "records": 35284,
+    "note": "Научный кандидат. Не база Genopoisk GD, не пользовательские данные, не FTDNA-выгрузки. Со снимком 45 389 из архива не объединяется."
+  },
+  "audit_date": "2026-11-03",
+  "status_legend": {
+    "propose_include_conditional": "предлагается к включению после подтверждения условий на первичной странице издателя/репозитория",
+    "exclude_pending_terms": "не включать: условия повторного использования не подтверждены",
+    "exclude_pending_permission": "не включать: требуется разрешение правообладателя"
+  },
+  "sources": [
+    {
+      "source": "Scientific_Purps2014_PPY23",
+      "records": 19630,
+      "doi": "10.1016/j.fsigen.2014.04.008",
+      "license_claim": "CC BY 3.0",
+      "license_evidence": [
+        {
+          "url": "https://eprints.whiterose.ac.uk/id/eprint/108163/",
+          "kind": "репозиторий (вторичный)",
+          "text": "This is an open access article under the CC BY license (http://creativecommons.org/licenses/by/3.0/)"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://doi.org/10.1016/j.fsigen.2014.04.008",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC4127773/"
+      ],
+      "condition": "CC BY 3.0: копирование, распространение и переработка разрешены при указании авторства, ссылки на лицензию и указания изменений. Нужно подтвердить, что файл mmc1 (supplementary) покрыт той же лицензией.",
+      "status": "propose_include_conditional",
+      "row_fixes": [
+        "94 профиля содержат аллель 0 — считать локус отсутствующим (null/не определён)"
+      ]
+    },
+    {
+      "source": "Scientific_Ballantyne2014_RM_YSTR",
+      "records": 12272,
+      "doi": "10.1002/humu.22599",
+      "license_claim": "CC BY 3.0",
+      "license_evidence": [
+        {
+          "url": "https://repositori.upf.edu/items/8b5758ba-6936-45a7-b011-9a09d6a8c4f0",
+          "kind": "репозиторий (вторичный)",
+          "text": "rights URI: http://creativecommons.org/licenses/by/3.0/; © 2014, Kaye N. Ballantyne et al."
+        },
+        {
+          "url": "https://eprints.whiterose.ac.uk/id/eprint/108164/",
+          "kind": "репозиторий (вторичный)",
+          "text": "open access article under the terms of the Creative Commons Attribution License"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://doi.org/10.1002/humu.22599"
+      ],
+      "condition": "CC BY 3.0 при указании авторства. Нужно подтвердить, что Supporting Information (humu0035-1021-SD2.xlsx, Table S6) покрыт лицензией статьи.",
+      "status": "propose_include_conditional",
+      "row_fixes": [
+        "10 профилей Tehuelches (Argentina): DYS389II = 15–17 при DYS389I = 13–14 — это значение DYS389II−I, а не сумма; локус DYS389II для них не использовать",
+        "1 профиль: DYS389I записан как '131,4' — некорректное значение, локус не использовать",
+        "9 профилей с аллелем 0 — считать локус отсутствующим",
+        "ключ 'GATA H4' сводится к Y-GATA-H4 (медиана 12, шкала совпадает с другими источниками)"
+      ]
+    },
+    {
+      "source": "Scientific_NIST1032_UAS24",
+      "records": 1032,
+      "doi": "10.1016/j.fsigen.2021.102655",
+      "license_claim": "Данные NIST Public Data Repository, лицензия по ссылке https://www.nist.gov/open/license",
+      "license_evidence": [
+        {
+          "url": "https://catalog.data.gov/dataset/u-s-population-data-for-human-identification-markers",
+          "kind": "каталог data.gov (вторичный)",
+          "text": "License: https://www.nist.gov/open/license; DOI 10.18434/t4/1500024"
+        },
+        {
+          "url": "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications",
+          "kind": "NIST (не открыт из сессии, цитата по выдаче поиска)",
+          "text": "работы сотрудников NIST по 17 U.S.C. §105 не охраняются авторским правом в США; могут охраняться за рубежом; NIST просит указывать NIST как источник"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://www.nist.gov/open/license",
+        "https://doi.org/10.18434/t4/1500024"
+      ],
+      "condition": "Свободное использование в США как работы федерального правительства с указанием NIST; за рубежом возможна охрана. Брать данные из NIST PDR, а не из supplementary издателя.",
+      "status": "propose_include_conditional",
+      "row_fixes": [
+        "ошибка в citation метаданных: первый автор Steffen B (Gettings KB — последний), FSI:Genetics том 57 (2022), а не 58",
+        "все 1032 записи имеют одну метку 'United States (NIST 1032 sample set)': четыре популяционные группы статьи потеряны — восстановить из NIST PDR"
+      ]
+    },
+    {
+      "source": "Scientific_Roewer2008_WesternRussia",
+      "records": 545,
+      "doi": "10.1007/s00414-007-0222-2",
+      "license_claim": "не подтверждена",
+      "license_evidence": [
+        {
+          "url": "https://pubmed.ncbi.nlm.nih.gov/18228030/",
+          "kind": "PubMed",
+          "text": "полный текст доступен в PMC (PMC2755792); лицензия в найденных записях не указана"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://link.springer.com/article/10.1007/s00414-007-0222-2",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC2755792/"
+      ],
+      "condition": "Свободный доступ к статье в PMC не является разрешением на перепубликацию таблицы S1. Нужна строка лицензии на странице Springer/PMC.",
+      "status": "exclude_pending_terms",
+      "row_fixes": [
+        "2 профиля с аллелем 0 — считать локус отсутствующим"
+      ]
+    },
+    {
+      "source": "Scientific_Balanovsky2011_Caucasus",
+      "records": 1515,
+      "doi": "10.1093/molbev/msr126",
+      "license_claim": "открытая лицензия не найдена",
+      "license_evidence": [
+        {
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3355373/",
+          "kind": "PMC (из выдачи поиска)",
+          "text": "авторская рукопись (author manuscript) в PMC; лицензия на данные не указана"
+        },
+        {
+          "url": "https://drmc.library.adelaide.edu.au/dspace/handle/2440/65790",
+          "kind": "репозиторий",
+          "text": "items are protected by copyright, with all rights reserved, unless otherwise indicated"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://doi.org/10.1093/molbev/msr126"
+      ],
+      "condition": "Метаданные самого кандидата: «All rights reserved; redistribution requires rights-holder permission». Нужно письменное разрешение авторов/OUP.",
+      "status": "exclude_pending_permission",
+      "row_fixes": [
+        "28 профилей содержат меньше 12 маркеров (24 — по 2 маркера) — малоинформативны для сопоставления",
+        "1 профиль: DYS635 = 12 при медиане 23 — проверить по исходной таблице"
+      ]
+    },
+    {
+      "source": "Scientific_Underhill2010_R1a_YSTR37",
+      "records": 290,
+      "doi": "10.1038/ejhg.2009.194",
+      "license_claim": "открытая лицензия не найдена",
+      "license_evidence": [
+        {
+          "url": "https://repository.ias.ac.in/51846",
+          "kind": "репозиторий",
+          "text": "Copyright of this article belongs to Nature Publishing Group"
+        }
+      ],
+      "primary_to_confirm": [
+        "https://doi.org/10.1038/ejhg.2009.194"
+      ],
+      "condition": "Метаданные кандидата: «All rights reserved; redistribution requires rights-holder permission». Нужно разрешение правообладателя.",
+      "status": "exclude_pending_permission",
+      "row_fixes": [
+        "Y-GATA-H4 = 19–23 (медиана 21) при 11–12 в остальных источниках — другая номенклатура; без пересчёта сравнивать нельзя",
+        "DYS389II не опубликован, а вычислен как DYS389I + DYS389B (277 из 277) — помечать как производное значение",
+        "DYS389B (= DYS389II−I) в GD не учитывать"
+      ]
+    }
+  ],
+  "proposal": {
+    "include_conditional_records": 32934,
+    "exclude_records": 2350,
+    "include_conditional_sources": [
+      "Scientific_Purps2014_PPY23",
+      "Scientific_Ballantyne2014_RM_YSTR",
+      "Scientific_NIST1032_UAS24"
+    ],
+    "excluded_sources": [
+      "Scientific_Roewer2008_WesternRussia",
+      "Scientific_Balanovsky2011_Caucasus",
+      "Scientific_Underhill2010_R1a_YSTR37"
+    ]
+  }
+}
