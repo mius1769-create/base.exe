@@ -6,3 +6,5 @@ var/
 *.key
 # Научный справочник кладётся локально; в git — только MANIFEST.json после сверки
 data/*.db
+# синтетические файлы форматов (не данные): tests/fixtures/formats/README.txt
+!tests/fixtures/formats/*.xlsx
