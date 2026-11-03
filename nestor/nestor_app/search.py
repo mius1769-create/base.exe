@@ -3,12 +3,13 @@
 Гостевой поиск (без аккаунта):
   1. загруженный гостем профиль никуда не сохраняется;
   2. кандидаты — только профили с разрешённым поиском (searchable = 1);
-  3. подходящие совпадения = GD <= max_gd и общих маркеров >= min_common;
+  3. подходящие совпадения = GD <= max_gd и фактически сравненных локусов
+     (compared, без локусов с разным числом копий и дробными различиями) >= min_common;
   4. из ВСЕГО списка подходящих выбирается floor(n * 20%) совпадений случайно,
      но детерминированно: ключ = HMAC-SHA256(секрет сервера, канонический
      запрос), вес совпадения = HMAC-SHA256(ключ, public_handle); берутся k
      совпадений с наименьшим весом. Повтор того же запроса даёт ту же выборку;
-  5. выбранные сортируются по GD (затем по числу общих маркеров, затем по handle).
+  5. выбранные сортируются по GD (затем по числу сравненных локусов, затем по handle).
 
 Поиск владельца: только по собственному профилю с включённым сопоставлением
 (взаимность), возвращает полный список совпадений среди открытых профилей
@@ -41,10 +42,13 @@ class PublicMatch:
 
     handle: str
     gd: int
-    common: int
+    compared: int              # локусы, фактически вошедшие в GD (по ним — порог min_common)
     nickname: str | None
     ancestor: str | None
     preliminary: bool = False  # есть дробные различия без перевода в шаги (T18)
+    overlap: int = 0           # локусы в пересечении профилей
+    copy_count_differences: int = 0   # локусы с разным числом копий (вне GD и compared)
+    fractional_differences: int = 0   # локусы с неподтверждёнными дробными различиями (вне GD и compared)
 
 
 @dataclass(frozen=True)
@@ -64,18 +68,20 @@ def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None):
     out: list[PublicMatch] = []
     for row, markers in pr.iter_searchable(conn, exclude_owner=exclude_owner):
         res = genetic_distance(query, markers)
-        if res.common >= min_common and res.gd <= max_gd:
+        if res.compared >= min_common and res.gd <= max_gd:
             out.append(PublicMatch(
-                handle=row["public_handle"], gd=res.gd, common=res.common,
+                handle=row["public_handle"], gd=res.gd, compared=res.compared,
                 nickname=pr.visible_field(row["nickname"], row["nickname_visibility"], viewer),
                 ancestor=pr.visible_field(row["ancestor_text"], row["ancestor_visibility"], viewer),
-                preliminary=res.preliminary,
+                preliminary=res.preliminary, overlap=res.overlap,
+                copy_count_differences=len(res.copy_count_differences),
+                fractional_differences=len(res.allele_differences),
             ))
     return out
 
 
 def _sort(matches: list[PublicMatch]) -> list[PublicMatch]:
-    return sorted(matches, key=lambda m: (m.gd, -m.common, m.handle))
+    return sorted(matches, key=lambda m: (m.gd, -m.compared, m.handle))
 
 
 def guest_query_key(secret: bytes, query: dict[str, tuple[float, ...]], max_gd: int, min_common: int) -> bytes:

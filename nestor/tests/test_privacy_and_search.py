@@ -116,7 +116,8 @@ class TestNoPrivateDataInResults(unittest.TestCase):
         self.assertNotIn("KIT", blob)
         self.assertNotIn("@example.test", blob)
         self.assertNotIn("SECRETKIT1", blob)
-        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "common", "nickname", "ancestor", "preliminary"})
+        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "compared", "overlap", "copy_count_differences",
+                          "fractional_differences", "nickname", "ancestor", "preliminary"})
         self.assertNotIn("kit_id_private", export)
 
     def test_field_visibility_guest_vs_registered(self):
@@ -229,6 +230,36 @@ class TestGuestSampling(unittest.TestCase):
         self.assertEqual(key.hex(), vec["expected_key_hex"])
         matches = [PublicMatch(h, gd, 30, None, None) for h, gd in vec["matches"]]  # preliminary=False
         self.assertEqual([m.handle for m in guest_sample(matches, key)], vec["expected_selection"])
+
+
+class TestMinMarkersThreshold(unittest.TestCase):
+    """Порог min_common считается по фактически сравненным локусам (compared)."""
+
+    def setUp(self):
+        self.conn = new_conn()
+        self.addCleanup(self.conn.close)
+        uid = new_user(self.conn, 1)
+        # 12 общих локусов с запросом: 10 сравнимых, 1 с другим числом копий, 1 с дробным различием
+        target = {f"DYS{n}": (14.0,) for n in range(500, 510)}
+        target["DYS385"] = (11.0, 14.0, 15.0)
+        target["DYS458"] = (17.2,)
+        pid = pr.create_profile(self.conn, uid, target, consent_basis="own_test", consent_confirmed=True)
+        pr.set_searchable(self.conn, uid, pid, True)
+        self.query = {f"DYS{n}": (14.0,) for n in range(500, 510)}
+        self.query["DYS385"] = (11.0, 14.0)
+        self.query["DYS458"] = (18.2,)
+        self.owner = new_user(self.conn, 2)
+        self.own = pr.create_profile(self.conn, self.owner, self.query, consent_basis="own_test", consent_confirmed=True)
+        pr.set_searchable(self.conn, self.owner, self.own, True)
+
+    def test_excluded_loci_do_not_pass_threshold(self):
+        self.assertEqual(search.owner_search(self.conn, self.owner, self.own, min_common=11), [])
+        self.assertEqual(search.owner_search(self.conn, self.owner, self.own, min_common=12), [])
+
+    def test_threshold_met_by_compared_loci_only(self):
+        [m] = search.owner_search(self.conn, self.owner, self.own, min_common=10)
+        self.assertEqual((m.gd, m.compared, m.overlap), (0, 10, 12))
+        self.assertEqual((m.copy_count_differences, m.fractional_differences, m.preliminary), (1, 1, True))
 
 
 class TestDeletion(unittest.TestCase):

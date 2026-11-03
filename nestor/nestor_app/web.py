@@ -260,7 +260,7 @@ class _Handler(BaseHTTPRequestHandler):
 <form method="post" action="/guest/search">
 <textarea name="markers" required>{esc(text)}</textarea>
 <p>GD не больше <input type="text" name="max_gd" value="{esc(max_gd)}" size="3">,
-общих маркеров не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3">
+сравненных локусов не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3">
 <button>Искать</button></p></form>{self._ref_note()}
 <p class="muted">Импорт файлов FTDNA CSV, Genopoisk Y37/Y50 и Strelka XLSX будет добавлен после аудита архива.
 Y700 не поддерживается.</p></div>"""
@@ -280,9 +280,15 @@ Y700 не поддерживается.</p></div>"""
                            f'<input type="text" name="message" placeholder="сообщение владельцу" required>'
                            f'<button>Запросить связь</button></form>')
             gd = f"{m.gd} (предварительно)" if m.preliminary else str(m.gd)
-            rows.append(f"<tr><td>{esc(m.handle)}</td><td>{gd}</td><td>{m.common}</td>"
+            extra = []
+            if m.copy_count_differences:
+                extra.append(f"разное число копий: {m.copy_count_differences}")
+            if m.fractional_differences:
+                extra.append(f"дробные различия: {m.fractional_differences}")
+            cmp_cell = f"{m.compared} из {m.overlap}" + (f" ({'; '.join(extra)})" if extra else "")
+            rows.append(f"<tr><td>{esc(m.handle)}</td><td>{gd}</td><td>{esc(cmp_cell)}</td>"
                         f"<td>{esc(m.nickname) or '—'}</td><td>{esc(m.ancestor) or '—'}</td><td>{contact}</td></tr>")
-        return ("<table><tr><th>Профиль</th><th>GD</th><th>Общих маркеров</th><th>Никнейм</th>"
+        return ("<table><tr><th>Профиль</th><th>GD</th><th>Сравнено локусов (из общих)</th><th>Никнейм</th>"
                 "<th>Дальний предок</th><th></th></tr>" + "".join(rows) + "</table>")
 
     def _guest_search(self, sess, form):
@@ -426,6 +432,6 @@ Y700 не поддерживается.</p></div>"""
             return self._error(str(e), sess)
         content = (f'<div class="card"><h2>Совпадения</h2>'
                    f'<form method="get"><p>GD ≤ <input type="text" name="max_gd" value="{max_gd}" size="3"> '
-                   f'общих ≥ <input type="text" name="min_common" value="{min_common}" size="3"> <button>Обновить</button></p></form>'
+                   f'сравнено ≥ <input type="text" name="min_common" value="{min_common}" size="3"> <button>Обновить</button></p></form>'
                    f'{self._match_table(matches, contact_csrf=sess[1])}</div>')
         self._page("Совпадения", content, sess)
