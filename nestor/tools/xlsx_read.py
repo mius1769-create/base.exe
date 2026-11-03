@@ -65,3 +65,39 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list[str]]:
         else:
             rows.append([])
     return rows
+
+
+def read_font_colors(path: Path, sheet: str | None = None) -> dict[tuple[int, int], str]:
+    """Цвет шрифта ячеек {(строка, колонка): 'FF0070C0' | 'theme1' | ...} (индексы с 0, как в read_sheet)."""
+    with zipfile.ZipFile(path) as z:
+        styles = ET.fromstring(z.read("xl/styles.xml"))
+        fonts = styles.find("m:fonts", NS)
+        xfs = styles.find("m:cellXfs", NS)
+        font_color = []
+        for f in fonts:
+            c = f.find("m:color", NS)
+            if c is None:
+                font_color.append("")
+            elif c.get("rgb"):
+                font_color.append(c.get("rgb").upper())
+            elif c.get("theme") is not None:
+                font_color.append("theme" + c.get("theme"))
+            else:
+                font_color.append("indexed" + str(c.get("indexed")))
+        xf_font = [int(x.get("fontId", 0)) for x in xfs]
+        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        sheets = wb.find("m:sheets", NS)
+        chosen = sheets[0] if sheet is None else next(s for s in sheets if s.get("name") == sheet)
+        rid = chosen.get(f"{{{NS['r']}}}id")
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        target = next(r.get("Target") for r in rels if r.get("Id") == rid).lstrip("/")
+        if not target.startswith("xl/"):
+            target = "xl/" + target
+        root = ET.fromstring(z.read(target))
+    out = {}
+    for ri, row in enumerate(root.iter(f"{{{NS['m']}}}row")):
+        for c in row.findall("m:c", NS):
+            s = c.get("s")
+            if s is not None:
+                out[(ri, _col_index(c.get("r")))] = font_color[xf_font[int(s)]]
+    return out

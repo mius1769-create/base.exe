@@ -1,26 +1,49 @@
 {
-  "note": "Обозначения в первичных таблицах. В сырой записи хранятся как есть; здесь — их смысл и основание. Используются только при сравнении и будущих правилах преобразования.",
+  "note": "Обозначения в первичных таблицах. В сырой записи хранятся как есть; здесь — их смысл и основание.",
   "codes": [
     {
       "source": "Scientific_NIST1032_UAS24",
       "code": "del",
-      "meaning": "вызов «deletion» для локуса: аллель не наблюдается (делеция), а не отсутствие типирования",
-      "basis": "source_metadata.notes кандидата: «Allele calls marked del … del call count=6; source workbook preserves exact deletion labels»; формулировку сверить с легендой Table S4",
+      "meaning": "обозначение вызова 'del' в Table S4 (по смыслу — делеция локуса); легенда Table S4 его не расшифровывает",
+      "basis": "Table S4. Allele call table.xlsx (NIST PDR doi:10.18434/t4/1500024), SHA-256 9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed, лист «Table S4.», легенда в ячейке A1; в легенде определения нет — смысл не подтверждён первично",
+      "occurrences": {
+        "DYS389I": 1,
+        "DYS389II": 1,
+        "DYS439": 1,
+        "DYS448": 2,
+        "DYS505": 1
+      },
       "confirmed_by_primary": false
     },
     {
       "source": "Scientific_NIST1032_UAS24",
       "code": "*",
-      "meaning": "пометка мутации DYS481 (связана с примечанием о парах отец–сын)",
-      "basis": "source_metadata.notes кандидата: «Source notes about father-son pairs, DYS481 mutation (*)»; сверить с легендой Table S4",
-      "confirmed_by_primary": false
+      "meaning": "мутация DYS481 между отцом и сыном в паре 28H; отмечен аллель в профиле этой пары",
+      "basis": "Table S4. Allele call table.xlsx (NIST PDR doi:10.18434/t4/1500024), SHA-256 9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed, лист «Table S4.», легенда в ячейке A1: «…except the alleles of the 28H pair at DYS481, where there was a mutation observed between the pair, the allele call is marked with (*)»",
+      "occurrences": {
+        "DYS481": 1
+      },
+      "confirmed_by_primary": true
     },
     {
       "source": "Scientific_NIST1032_UAS24",
       "code": "**",
-      "meaning": "пометка к вызову DYS456",
-      "basis": "source_metadata.notes кандидата: «DYS456 call (**)»; точный смысл — по легенде Table S4",
-      "confirmed_by_primary": false
+      "meaning": "DYS456 (неотчётный локус ForenSeq) в паре 77A: наборы дали разные вызовы, приведён результат ForenSeq (см. Table 4 статьи)",
+      "basis": "Table S4. Allele call table.xlsx (NIST PDR doi:10.18434/t4/1500024), SHA-256 9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed, лист «Table S4.», легенда в ячейке A1: «Another allele, marked with (**) is the unreported ForenSeq locus of DYS456 in the sample pair 77A, where the different kits provide different allele calls, and the ForenSeq result is reported here, see Table 4. for details»",
+      "occurrences": {
+        "DYS456": 1
+      },
+      "confirmed_by_primary": true
+    },
+    {
+      "source": "Scientific_NIST1032_UAS24",
+      "code": "font:FF0070C0",
+      "meaning": "синий шрифт sample ID: образец из пары отец–сын, вызовы сына заменены вызовами отца",
+      "basis": "Table S4. Allele call table.xlsx (NIST PDR doi:10.18434/t4/1500024), SHA-256 9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed, лист «Table S4.», легенда в ячейке A1: «Samples listed in blue font are samples from father-son pairs where father allele calls replaced the son's allele calls»",
+      "occurrences": {
+        "Sample": 52
+      },
+      "confirmed_by_primary": true
     }
   ]
 }

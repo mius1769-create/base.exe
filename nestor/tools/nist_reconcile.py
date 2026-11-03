@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from inspect_reference import open_ro, sha256_file  # noqa: E402
-from xlsx_read import read_sheet  # noqa: E402
+from xlsx_read import read_font_colors, read_sheet  # noqa: E402
 
 PREFIX = "NIST1032|"
 AUDIT = Path(__file__).resolve().parent.parent / "data" / "source_audit.json"
@@ -39,7 +39,7 @@ ALIASES = {"Y GATA H4": "Y-GATA-H4", "GATA H4": "Y-GATA-H4", "YGATAH4": "Y-GATA-
 
 
 def _norm_locus(name: str) -> str:
-    n = name.strip()
+    n = re.sub(r"\s+a/b$", "", name.strip(), flags=re.I)  # 'DYS385 a/b' -> 'DYS385'
     return ALIASES.get(n, ALIASES.get(n.upper(), n.upper().replace(" ", "")))
 
 
@@ -76,9 +76,16 @@ def raw_record_from_row(rec: dict[str, str], loci_cols: dict[str, str]) -> dict[
 def _norm_value(v) -> str:
     if isinstance(v, list):
         return ",".join(_norm_value(x) for x in v)
-    if isinstance(v, float) and v.is_integer():
-        v = int(v)
-    return str(v).replace(" ", "").replace("/", ",").replace("-", ",")
+    if isinstance(v, float):
+        v = format(round(v, 6), "g")
+    parts = str(v).replace(" ", "").replace("/", ",").replace("-", ",").split(",")
+    out = []
+    for p in parts:
+        try:  # двоичное хранение xlsx: '33.200000000000003' сравнивается как 33.2
+            out.append(format(round(float(p), 6), "g"))
+        except ValueError:
+            out.append(p)
+    return ",".join(out)
 
 
 def load_table(path: Path, sheet: str | None, id_col: str, header_row: int | None):
@@ -93,7 +100,7 @@ def load_table(path: Path, sheet: str | None, id_col: str, header_row: int | Non
             continue
         rec = {header[i]: (r[i] if i < len(r) else "") for i in range(len(header)) if header[i]}
         table[r[idx].strip()] = (n, rec)
-    return header, table
+    return header, table, header_row
 
 
 def load_candidate(db: Path) -> dict[str, dict]:
@@ -115,9 +122,10 @@ def compare_values(a: dict[str, str], b: dict[str, str], loci: list[str]):
 
 
 def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_col: str | None,
-              s4_sheet=None, pdr_sheet=None, header_row=None, expected_groups: dict | None = None):
+              s4_sheet=None, pdr_sheet=None, header_row=None, expected_groups: dict | None = None,
+              font_flags: dict[str, str] | None = None):
     cand = load_candidate(candidate)
-    s4_header, s4_rows = load_table(s4, s4_sheet, id_col, header_row)
+    s4_header, s4_rows, s4_header_row = load_table(s4, s4_sheet, id_col, header_row)
     loci_cols = {h: _norm_locus(h) for h in s4_header if h and h not in (id_col, group_col)}
     s4_norm, codes_found = {}, collections.Counter()
     for sid, (_, rec) in s4_rows.items():
@@ -164,7 +172,7 @@ def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_co
 
     group_source, group_rows = "table_s4", s4_rows
     if pdr:
-        pdr_header, pdr_rows = load_table(pdr, pdr_sheet, id_col, header_row)
+        pdr_header, pdr_rows, _ = load_table(pdr, pdr_sheet, id_col, header_row)
         summary["files"]["pdr"] = {"name": pdr.name, "sha256": sha256_file(pdr)}
         summary["counts"]["pdr"] = len(pdr_rows)
         pdr_loci = {h: _norm_locus(h) for h in pdr_header if h and h not in (id_col, group_col)}
@@ -189,6 +197,21 @@ def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_co
         if group_col and group_col in pdr_header:
             group_source, group_rows = "pdr", pdr_rows
 
+    flags = []
+    if font_flags:
+        colors = read_font_colors(s4, s4_sheet)
+        id_idx = s4_header.index(id_col)
+        sha = sha256_file(s4)
+        by_row = {rowno: sid for sid, (rowno, _) in s4_rows.items()}
+        for (ri, ci), color in sorted(colors.items()):
+            sid = by_row.get(ri + 1)  # rowno в load_table — номер строки Excel (с 1)
+            if ci == id_idx and sid and color.upper() in font_flags:
+                flags.append({"record_key": PREFIX + sid, "field": font_flags[color.upper()], "value": "true",
+                              "origin_file": s4.name, "origin_sha256": sha,
+                              "origin_locator": f"row {ri + 1}, column {id_col!r}, font color {color}"})
+        summary["font_flags"] = {field: sum(1 for f in flags if f["field"] == field) for field in font_flags.values()}
+        summary["font_flags_in_candidate"] = sum(1 for f in flags if f["record_key"][len(PREFIX):] in cand)
+
     labels = []
     if group_col and any(group_col in rec for _, rec in group_rows.values()):
         src_file = pdr if group_source == "pdr" else s4
@@ -209,7 +232,7 @@ def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_co
             summary["groups"]["candidate_labels_match_article"] = counts == expected_groups
     else:
         summary["groups"] = {"origin": None, "note": "колонка группы не найдена в первичных файлах — метки не назначены"}
-    return summary, labels
+    return summary, labels + flags
 
 
 def main(argv=None) -> int:
@@ -222,6 +245,8 @@ def main(argv=None) -> int:
     ap.add_argument("--id-col", required=True)
     ap.add_argument("--group-col")
     ap.add_argument("--header-row", type=int, help="номер строки заголовка (0 — первая); по умолчанию ищется по --id-col")
+    ap.add_argument("--font-flag", action="append", default=[],
+                    help="ЦВЕТ=ПОЛЕ: отметить строки, где ID набран этим цветом шрифта (напр. FF0070C0=father_son_substitution)")
     ap.add_argument("--summary", type=Path)
     ap.add_argument("--groups", type=Path, help="CSV меток групп (отдельно от сырых данных)")
     a = ap.parse_args(argv)
@@ -230,7 +255,8 @@ def main(argv=None) -> int:
         nist = next((x for x in json.loads(AUDIT.read_text(encoding="utf-8"))["sources"] if "NIST" in x["source"]), {})
         expected = nist.get("provenance", {}).get("group_totals", {}).get("counts")
     summary, labels = reconcile(a.candidate, a.table_s4, a.pdr, a.id_col, a.group_col,
-                                a.s4_sheet, a.pdr_sheet, a.header_row, expected)
+                                a.s4_sheet, a.pdr_sheet, a.header_row, expected,
+                                dict(x.upper().split("=", 1)[0:1] + x.split("=", 1)[1:] for x in a.font_flag) or None)
     text = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
     if a.summary:
         a.summary.write_text(text, encoding="utf-8")

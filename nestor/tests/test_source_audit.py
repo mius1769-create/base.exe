@@ -64,11 +64,23 @@ class TestSourceAudit(unittest.TestCase):
         self.assertEqual(sum(g["counts"].values()), g["total"])
         self.assertEqual(g["total"], nist["records"])
         self.assertIn("1036", nist["catalog_level"]["statement"])
+        self.assertEqual(nist["dataset"]["primary_file"]["sha256"],
+                         "9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed")
+        rec = json.loads((ROOT / "docs" / "NIST_RECONCILIATION.json").read_text(encoding="utf-8"))
+        self.assertEqual(rec["counts"], {"candidate": 1032, "table_s4": 1032})
+        self.assertEqual(rec["candidate_vs_s4"]["differences_by_locus"], {})
+        self.assertEqual(sum(rec["candidate_vs_s4"]["del_in_s4_absent_in_candidate"].values()), 6)
+        self.assertIsNone(rec["groups"]["origin"])  # групп в Table S4 нет — построчно не назначены
+        self.assertEqual(rec["font_flags"], {"father_son_substitution": 52})
 
     def test_value_codes_documented_separately(self):
         codes = json.loads((ROOT / "data" / "value_codes.json").read_text(encoding="utf-8"))["codes"]
         nist = {c["code"] for c in codes if "NIST" in c["source"]}
-        self.assertEqual(nist, {"del", "*", "**"})
+        self.assertEqual(nist, {"del", "*", "**", "font:FF0070C0"})
+        by_code = {c["code"]: c for c in codes if "NIST" in c["source"]}
+        self.assertTrue(by_code["*"]["confirmed_by_primary"] and by_code["**"]["confirmed_by_primary"])
+        self.assertFalse(by_code["del"]["confirmed_by_primary"])  # легенда Table S4 не определяет del
+        self.assertEqual(sum(by_code["del"]["occurrences"].values()), 6)
         for c in codes:
             self.assertTrue(c["meaning"] and c["basis"])
 

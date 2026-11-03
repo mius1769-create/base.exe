@@ -154,8 +154,8 @@
       "citation": "Steffen B, Huszar T, Borsuk L, Vallone P, Gettings KB. A multi-dimensional evaluation of the 'NIST 1032' sample set across four forensic Y-STR multiplexes. Forensic Sci Int Genet. 2022;57:102655.",
       "doi": "10.1016/j.fsigen.2021.102655",
       "dataset": {
-        "table": "Table S4 (allele call table) — в кандидате взята из supplementary статьи",
-        "raw_file": "NIST1032_TableS4_AlleleCallTable.xlsx",
+        "table": "Table S4. Allele call table (NIST PDR)",
+        "raw_file": "Table S4. Allele call table.xlsx",
         "primary_location": "NIST Public Data Repository, «U.S. population data for human identification markers», doi:10.18434/t4/1500024",
         "dataset_terms": {
           "statement": "Набор NIST PDR doi:10.18434/t4/1500024 («U.S. population data for human identification markers»): в каталоге указана лицензия https://www.nist.gov/open/license. Условия этого набора нужно прочитать на карточке набора и на странице лицензии; лицензия статьи (Elsevier) на набор не распространяется и разрешением не считается.",
@@ -173,6 +173,13 @@
             }
           ],
           "to_confirm": "1) текст условий на карточке набора PDR и на nist.gov/open/license; 2) есть ли в разделе этики статьи или в документации набора ограничения цели использования образцов (генеалогическое сопоставление ≠ судебно-популяционное исследование); 3) условия supplementary издателя, если данные берутся оттуда"
+        },
+        "primary_file": {
+          "name": "Table S4. Allele call table.xlsx",
+          "sha256": "9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed",
+          "url": "https://data.nist.gov/od/ds/6998B81EF78777B2E05324570681D4DC1911/Multi-dimensional%20evaluation%20of%20NIST%201032%20across%20four%20Y-STR%20multiplexes/Table%20S4.%20Allele%20call%20table.xlsx",
+          "obtained": "файл передан заказчиком (из среды Claude сайт NIST закрыт); SHA-256 совпал с присланным",
+          "change_log": "Initial release, 2021-12-09 (лист Change Log)"
         }
       },
       "article_terms": {
@@ -186,11 +193,13 @@
       },
       "attribution": "Steffen B, et al. 2022, Forensic Sci Int Genet 57:102655; данные: NIST, «U.S. population data for human identification markers», doi:10.18434/t4/1500024",
       "quality": [
+        "Table S4 (NIST PDR) сверена с кандидатом: 1032/1032 ID, 30/30 локусов, 0 расхождений значений",
+        "кандидат хранит 6 вызовов 'del' как отсутствующий локус и не содержит пометок '*' (DYS481, пара 28H) и '**' (DYS456, пара 77A): в справочник сырые записи берутся из Table S4 дословно, смысл обозначений — data/value_codes.json",
+        "52 образца (синий шрифт в Table S4) — пары отец–сын, где вызовы сына заменены вызовами отца; хранится как аннотация father_son_substitution с указанием файла и строки",
+        "в xlsx значения DYS518 вида 33.2 хранятся как '33.200000000000003' (двоичная запись Excel): сырая строка сохраняется, при сравнении приводится к 33.2",
+        "в Table S4 нет колонки популяционной группы; подтверждены только общие численности по статье (341/96/359/236); построчно группы не назначены",
         "метаданные кандидата: неверная цитата (первым автором указан Gettings KB, том 58; верно — Steffen B, том 57)",
-        "все 1032 записи кандидата с одной меткой популяции; подтверждённые общие численности групп внесены, построчно группы назначаются только после сопоставления sample ID с Table S4 (record_annotations)",
-        "кандидат хранит 6 вызовов 'del' как отсутствующий локус и не содержит пометок '*' (DYS481) и '**' (DYS456): исходные обозначения будут храниться в сырой записи из Table S4 как есть, смысл — в data/value_codes.json",
-        "QC Q03: 14 записей с несколькими значениями однокопийного локуса",
-        "QC Q04: 10 значений вне диапазона — ручная проверка"
+        "QC Q03: 14 записей с несколькими значениями однокопийного локуса; QC Q04: 10 значений вне диапазона — ручная проверка"
       ],
       "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
       "scenarios": {
@@ -209,10 +218,10 @@
       },
       "decision": "ждём подтверждения",
       "needed": [
-        "Table S4 из NIST PDR (прямая ссылка или файл) — построчная сверка, сопоставление sample ID и групп, исходные del/*/**",
-        "легенда Table S4 — подтвердить смысл del, *, **",
-        "текст условий набора PDR и nist.gov/open/license",
-        "раздел этики/происхождения образцов — допустимость генеалогического сопоставления"
+        "первичный файл с соответствием sample ID → популяционная группа (если такой есть в NIST PDR)",
+        "текст условий набора NIST PDR и nist.gov/open/license",
+        "раздел этики/происхождения образцов — допустимость генеалогического сопоставления",
+        "смысл 'del' — легенда Table S4 его не определяет"
       ],
       "status_detail": "происхождение и состав подтверждены, использование в NeSToR ожидает проверки условий",
       "provenance": {
@@ -230,7 +239,7 @@
             "text": "African American 341, Asian 96, Caucasian 359, Hispanic 236 (сумма 1032)"
           }
         ],
-        "row_level_reconciliation": "ожидает Table S4 из NIST PDR (ссылка или файл); инструмент — tools/nist_reconcile.py; группы назначаются строкам только по совпадению sample ID",
+        "row_level_reconciliation": "выполнена (tools/nist_reconcile.py, docs/NIST_RECONCILIATION.json): 1032 sample ID и 30 локусов совпадают в обе стороны, расхождений значений 0; 6 'del' в Table S4 соответствуют отсутствующим значениям кандидата; '*' (DYS481) и '**' (DYS456) в кандидате утрачены при тех же числах",
         "group_totals": {
           "counts": {
             "African American": 341,
@@ -240,7 +249,7 @@
           },
           "total": 1032,
           "basis": "первичная статья Steffen et al. 2022 (подтверждено заказчиком по тексту статьи)",
-          "level": "общие численности групп; построчно группы не присвоены — только после сопоставления sample ID с первичной Table S4"
+          "level": "общие численности групп по статье; в Table S4 колонки группы нет, поэтому построчно группы не назначены — нужен первичный файл с соответствием sample ID → группа"
         }
       },
       "catalog_level": {

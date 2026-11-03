@@ -1,0 +1,146 @@
+{
+  "files": {
+    "candidate": {
+      "name": "786045b4-Nestor_scientific_YSTR.db",
+      "sha256": "c6f713b1a0db0966fbabbfaae8fc926934ddd3131fccb591d7686719a7ba7d7d"
+    },
+    "table_s4": {
+      "name": "1191a455-Table_S4._Allele_call_table.xlsx",
+      "sha256": "9996de5d267d79b4eaa61f641303ff5a2b5192a6848694dc3a11f0a0610fd2ed"
+    }
+  },
+  "counts": {
+    "candidate": 1032,
+    "table_s4": 1032
+  },
+  "ids": {
+    "only_candidate": [],
+    "only_table_s4": [],
+    "only_candidate_count": 0,
+    "only_table_s4_count": 0
+  },
+  "loci": {
+    "table_s4": [
+      "DYF387S1",
+      "DYS19",
+      "DYS385",
+      "DYS389I",
+      "DYS389II",
+      "DYS390",
+      "DYS391",
+      "DYS392",
+      "DYS393",
+      "DYS437",
+      "DYS438",
+      "DYS439",
+      "DYS448",
+      "DYS449",
+      "DYS456",
+      "DYS458",
+      "DYS460",
+      "DYS481",
+      "DYS505",
+      "DYS518",
+      "DYS522",
+      "DYS533",
+      "DYS549",
+      "DYS570",
+      "DYS576",
+      "DYS612",
+      "DYS627",
+      "DYS635",
+      "DYS643",
+      "Y-GATA-H4"
+    ],
+    "candidate": [
+      "DYF387S1",
+      "DYS19",
+      "DYS385",
+      "DYS389I",
+      "DYS389II",
+      "DYS390",
+      "DYS391",
+      "DYS392",
+      "DYS393",
+      "DYS437",
+      "DYS438",
+      "DYS439",
+      "DYS448",
+      "DYS449",
+      "DYS456",
+      "DYS458",
+      "DYS460",
+      "DYS481",
+      "DYS505",
+      "DYS518",
+      "DYS522",
+      "DYS533",
+      "DYS549",
+      "DYS570",
+      "DYS576",
+      "DYS612",
+      "DYS627",
+      "DYS635",
+      "DYS643",
+      "Y-GATA-H4"
+    ],
+    "only_table_s4": [],
+    "only_candidate": []
+  },
+  "candidate_vs_s4": {
+    "differences_by_locus": {},
+    "difference_kinds": {},
+    "del_in_s4_absent_in_candidate": {
+      "DYS389I": 1,
+      "DYS389II": 1,
+      "DYS439": 1,
+      "DYS448": 2,
+      "DYS505": 1
+    }
+  },
+  "source_codes_in_s4": [
+    {
+      "code": "*",
+      "locus": "DYS481",
+      "count": 1
+    },
+    {
+      "code": "**",
+      "locus": "DYS456",
+      "count": 1
+    },
+    {
+      "code": "del",
+      "locus": "DYS389I",
+      "count": 1
+    },
+    {
+      "code": "del",
+      "locus": "DYS389II",
+      "count": 1
+    },
+    {
+      "code": "del",
+      "locus": "DYS439",
+      "count": 1
+    },
+    {
+      "code": "del",
+      "locus": "DYS448",
+      "count": 2
+    },
+    {
+      "code": "del",
+      "locus": "DYS505",
+      "count": 1
+    }
+  ],
+  "font_flags": {
+    "father_son_substitution": 52
+  },
+  "font_flags_in_candidate": 52,
+  "groups": {
+    "origin": null,
+    "note": "колонка группы не найдена в первичных файлах — метки не назначены"
+  }
+}

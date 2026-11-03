@@ -25,17 +25,19 @@ def col(i: int) -> str:
     return s
 
 
-def write_xlsx(path: Path, rows: list[list], sheet="Table S4"):
-    """Минимальный синтетический .xlsx (inline-строки и числа)."""
+def write_xlsx(path: Path, rows: list[list], sheet="Table S4", blue_rows=()):
+    """Минимальный синтетический .xlsx (inline-строки и числа); blue_rows — номера строк (с 1),
+    где первая ячейка набрана синим шрифтом FF0070C0."""
     xml_rows = []
     for ri, row in enumerate(rows, start=1):
         cells = []
         for ci, v in enumerate(row):
             ref = f"{col(ci)}{ri}"
+            st = ' s="1"' if (ri in blue_rows and ci == 0) else ' s="0"'
             if isinstance(v, (int, float)):
-                cells.append(f'<c r="{ref}"><v>{v}</v></c>')
+                cells.append(f'<c r="{ref}"{st}><v>{v}</v></c>')
             elif v != "":
-                cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(v))}</t></is></c>')
+                cells.append(f'<c r="{ref}"{st} t="inlineStr"><is><t>{escape(str(v))}</t></is></c>')
         xml_rows.append(f'<row r="{ri}">{"".join(cells)}</row>')
     m = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
     r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -44,6 +46,8 @@ def write_xlsx(path: Path, rows: list[list], sheet="Table S4"):
         z.writestr("xl/workbook.xml", f'<workbook xmlns="{m}" xmlns:r="{r}"><sheets><sheet name="{sheet}" sheetId="1" r:id="rId1"/></sheets></workbook>')
         z.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
                    '<Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+        z.writestr("xl/styles.xml", f'<styleSheet xmlns="{m}"><fonts count="2"><font><color theme="1"/></font>'
+                   '<font><color rgb="FF0070C0"/></font></fonts><cellXfs count="2"><xf fontId="0"/><xf fontId="1"/></cellXfs></styleSheet>')
         z.writestr("xl/worksheets/sheet1.xml", f'<worksheet xmlns="{m}"><sheetData>{"".join(xml_rows)}</sheetData></worksheet>')
 
 
@@ -172,3 +176,25 @@ class TestSourceCodes(unittest.TestCase):
                                                        expected_groups={"Asian": 1})
             self.assertFalse(summary["groups"]["primary_table_matches_article"])
             self.assertEqual([x["record_key"] for x in labels], ["NIST1032|A"])  # только сопоставленные по ID
+
+
+class TestFontFlagsAndFloats(unittest.TestCase):
+    def test_blue_font_flags_and_binary_float(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cand = d / "c.db"
+            make_db(cand, [("NIST1032|A", "NIST", {"DYS518": [33.2]}), ("NIST1032|B", "NIST", {"DYS518": [40]})],
+                    [("NIST", "t", 2)])
+            s4 = d / "s4.xlsx"
+            write_xlsx(s4, [["Legend"], ["Sample", "DYS518"], ["A", "33.200000000000003"], ["B", 40]], blue_rows=(4,))
+            summary, ann = nist_reconcile.reconcile(cand, s4, None, "Sample", None,
+                                                    font_flags={"FF0070C0": "father_son_substitution"})
+            self.assertEqual(summary["candidate_vs_s4"]["differences_by_locus"], {})
+            self.assertEqual(summary["font_flags"], {"father_son_substitution": 1})
+            flag = next(x for x in ann if x["field"] == "father_son_substitution")
+            self.assertEqual(flag["record_key"], "NIST1032|B")
+            self.assertIn("FF0070C0", flag["origin_locator"])
+
+    def test_dys385_ab_header(self):
+        self.assertEqual(nist_reconcile._norm_locus("DYS385 a/b"), "DYS385")
+        self.assertEqual(nist_reconcile._norm_locus("Y-GATA-H4"), "Y-GATA-H4")
