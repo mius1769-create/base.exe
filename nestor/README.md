@@ -96,6 +96,7 @@ nestor/
     candidates.py  отдельная база научных кандидатов (не справочник, не поиск)
     xlsx.py        чтение .xlsx без внешних пакетов
     test_catalog.py  локальный тестовый научный каталог (отдельная база в var/, выключен по умолчанию)
+    catalog_release.py  сборка каталога из исходного архива: SHA-256, количества, проверка интерфейса
     reference_rules.py   профиль для сравнения из сырой записи справочника (del исключается,
                          дроби xlsx нормализуются, пары отец–сын отделяются); к поиску не подключён
     reference_schema.py  схема научного справочника: неизменяемые сырые записи,
@@ -108,6 +109,7 @@ nestor/
   tools/nist_reconcile.py        сверка NIST: кандидат ↔ Table S4 ↔ NIST PDR, метки групп из первичного файла
   tools/xlsx_read.py             чтение .xlsx без внешних пакетов
   tools/build_test_catalog.py    сборка / включение / выключение / удаление тестового каталога
+  tools/Build-TestCatalog.ps1    сборка каталога на Windows одной командой (обычная учётная запись)
   data/source_audit.json         решения по источникам и сценариям использования
   data/transform_rules.json      предложенные преобразования (не применены)
   tests/           тесты + synthetic.py + vectors/guest_sampling_v1.json
@@ -255,11 +257,21 @@ py -3 tools/nist_reconcile.py --candidate ПУТЬ\К\Nestor_scientific_YSTR.db 
 наблюдениями), 20 662 снятых дубля копирования Purps/NIST, 8 сохранённых коллизий ID;
 право на повторное использование не подтверждено ни для одного источника.
 
+Сборка на своём компьютере из исходных файлов — одна команда (проверяет SHA-256,
+собирает, сверяет 60 011 / 51 985 / 8 026, включает и проверяет в интерфейсе с
+перезапуском; от обычной учётной записи; подробно — docs/TEST_CATALOG.md):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Build-TestCatalog.ps1 -Release "C:\Data\Genopoisk_expert_linux_2026-10-14.tar.gz" -Candidate "C:\Data\Nestor_scientific_YSTR.db"
+```
+
+Сборка без проверок архива (уже извлечённый scientific.sqlite):
+
 ```bash
 py -3 tools/build_test_catalog.py build --candidate ПУТЬ\К\Nestor_scientific_YSTR.db --archive ПУТЬ\К\scientific.sqlite --summary docs/TEST_CATALOG_SUMMARY.json
 ```
 
-Сборка не включает каталог. Включить (в результатах появится отдельный раздел
+Команда `build` не включает каталог. Включить (в результатах появится отдельный раздел
 «ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ» с пометкой непроверенных данных и «GD (предварительно)»):
 
 ```bash

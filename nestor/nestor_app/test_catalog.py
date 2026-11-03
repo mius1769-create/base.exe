@@ -372,6 +372,8 @@ class CatalogMatch:
     verification_status: str
     reuse_note: str
     flags: tuple
+    license: str = ""
+    quality: tuple = ()        # позиции записи, не вошедшие в сравнение: (локус, причина / QC-статус)
     preliminary: bool = True   # шкалы источников не откалиброваны (T15)
 
 
@@ -390,6 +392,11 @@ class Catalog:
                 pos = {k: mk.from_storage(v, st) for k, (v, st) in json.loads(r["positions_json"]).items()}
                 self.records.append((r["source_id"], r["source_sample_id"], r["population"], r["record_kind"],
                                      r["observed_n"], pos, tuple(json.loads(r["flags_json"]))))
+            self.counts = {"records": len(self.records),
+                           "individual_records": sum(1 for x in self.records if x[3] != "aggregated"),
+                           "aggregated_records": sum(1 for x in self.records if x[3] == "aggregated"),
+                           "aggregated_observations": sum(x[4] for x in self.records if x[3] == "aggregated"),
+                           "sources": len(self.sources)}
         finally:
             con.close()
 
@@ -399,8 +406,10 @@ class Catalog:
             res = genetic_distance(query, pos, excluded=excluded)
             if res.compared >= min_common and res.gd <= max_gd:
                 s = self.sources[src]
+                quality = tuple((k, str(v)) for k, v in sorted(pos.items()) if isinstance(v, mk.Invalid))
                 out.append(CatalogMatch(src, sid, pop, kind, n, res.gd, res.compared, res.panel_overlap,
-                                        s["verification_status"], s["reuse_note"], flags))
+                                        s["verification_status"], s["reuse_note"], flags,
+                                        license=s.get("license") or "", quality=quality))
         out.sort(key=lambda m: (m.gd, -m.compared, m.source_id, m.sample_id))
         return out[:limit]
 

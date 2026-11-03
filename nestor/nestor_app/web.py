@@ -374,7 +374,7 @@ class _Handler(BaseHTTPRequestHandler):
 <p>GD не больше <input type="text" name="max_gd" value="{esc(max_gd)}" size="3">,
 сравненных локусов (вошедших в GD) не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3"><br>
 исключить локусы (через запятую) <input type="text" name="excluded" value="{esc(excluded)}" size="30">
-<button>Искать</button></p></form>{self._legend()}{self._ref_note()}
+<button>Искать</button></p></form>{self._legend()}{self._ref_note()}{self._catalog_status()}
 <p class="muted">Импорт файлов FTDNA CSV, Genopoisk Y37/Y50 и Strelka XLSX будет добавлен после аудита архива.
 Y700 не поддерживается.</p></div>"""
 
@@ -655,6 +655,18 @@ Y700 не поддерживается.</p></div>"""
                 f'{"Полный исходный файл сохранён по вашему согласию." if src["import_file_id"] else "Полный файл не хранится — только ячейки этой строки."}</p>'
                 f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details></div>')
 
+    def _catalog_status(self) -> str:
+        cat = self.nestor.test_catalog()
+        if cat is None:
+            return ('<p class="muted" id="test-catalog-status">Научный тестовый каталог: <b>выключен</b>. '
+                    'Включить: <code>py -3 tools/build_test_catalog.py enable</code>.</p>')
+        c = cat.counts
+        return ('<p class="warn" id="test-catalog-status">Научный тестовый каталог: <b>включён</b> — '
+                f'ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ, непроверенные данные. Записей {c["records"]}: индивидуальных '
+                f'{c["individual_records"]}, агрегированных наблюдений {c["aggregated_records"]} '
+                f'(сумма N = {c["aggregated_observations"]}; это гаплотипы с численностью, а не люди); '
+                f'источников {c["sources"]}. Выключить: <code>py -3 tools/build_test_catalog.py disable</code>.</p>')
+
     def _catalog_block(self, query, max_gd, min_common, excluded) -> str:
         cat = self.nestor.test_catalog()
         if cat is None:
@@ -663,19 +675,27 @@ Y700 не поддерживается.</p></div>"""
         rows = []
         for m in matches:
             kind = "индивидуальная запись" if m.record_kind == "individual" else f"агрегированное наблюдение, N={m.observed_n}"
+            quality = "; ".join(f"{k}: {v}" for k, v in m.quality) or "—"
             rows.append(f"<tr><td>{esc(m.source_id)}</td><td>{esc(m.sample_id)}</td><td>{esc(m.population) or '—'}</td>"
                         f"<td>{esc(kind)}</td><td>{m.gd} (предварительно)</td><td>сравнено {m.compared} из {m.panel_overlap}</td>"
                         f"<td class='warn'>{esc(m.verification_status)}; {esc(m.reuse_note)}</td>"
+                        f"<td class='muted'>{esc(m.license) or '—'}</td>"
+                        f"<td class='muted'>не сравнивались: {esc(quality)}</td>"
                         f"<td class='muted'>{esc('; '.join(m.flags)) or '—'}</td></tr>")
+        ind = sum(1 for m in matches if m.record_kind != "aggregated")
+        agg = [m for m in matches if m.record_kind == "aggregated"]
+        summary = (f'<p>Найдено: индивидуальных записей {ind}; агрегированных наблюдений {len(agg)} '
+                   f'(сумма N = {sum(m.observed_n for m in agg)}) — агрегаты не считаются отдельными людьми.</p>')
         table = ("<table><tr><th>Источник</th><th>Sample ID</th><th>Популяция</th><th>Тип</th><th>GD</th>"
-                 "<th>Локусы</th><th>Статус и права</th><th>Пометки</th></tr>" + "".join(rows) + "</table>"
+                 "<th>Локусы</th><th>Статус и права</th><th>Лицензия (как в источнике)</th><th>Качество</th>"
+                 "<th>Пометки</th></tr>" + "".join(rows) + "</table>"
                  if rows else '<p class="muted">Совпадений в тестовом каталоге нет.</p>')
         return ('<div class="card"><h2>Научный тестовый каталог — ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</h2>'
                 '<p class="warn"><b>Непроверенные данные.</b> Каталог собран из двух научных снимков только для '
                 'локального тестирования: источники не допущены в справочник NeSToR, право на повторное '
                 'использование не подтверждено, шкалы аллелей источников не откалиброваны — все GD предварительные. '
                 'Агрегированные наблюдения — гаплотипы с численностью N, а не отдельные люди. Отключение: '
-                '<code>py -3 tools/build_test_catalog.py disable</code>.</p>' + table + '</div>')
+                '<code>py -3 tools/build_test_catalog.py disable</code>.</p>' + summary + table + '</div>')
 
     def _owner_matches(self, sess, pid):
         if not sess:

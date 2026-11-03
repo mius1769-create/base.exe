@@ -53,6 +53,17 @@ jobs:
         shell: bash
         run: python run_nestor.py --check-staging --var-dir "$RUNNER_TEMP/nestor-var"
 
+      # Сценарий сборки тестового каталога (синтетические входы): PowerShell 7 на Linux,
+      # Windows PowerShell 5.1 — ниже, от обычной учётной записи.
+      - name: Test catalog build script (pwsh, synthetic inputs)
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: |
+          python tests/synthetic_release.py "$env:RUNNER_TEMP/release" | Out-Null
+          ./tools/Build-TestCatalog.ps1 -Release "$env:RUNNER_TEMP/release/Synthetic_expert.tar.gz" `
+            -Candidate "$env:RUNNER_TEMP/release/Synthetic_candidate.db" -VarDir "$env:RUNNER_TEMP/catvar" `
+            -ExpectedFile "$env:RUNNER_TEMP/release/expected.json"
+
       # NeSToR от ОБЫЧНОЙ учётной записи (не Administrators, не RID 500) и проверка,
       # что вторая обычная учётная запись не читает её каталог загрузок.
       # Учётные записи существуют только в этом одноразовом runner; пароли не покидают шаг.
@@ -85,12 +96,35 @@ jobs:
             Get-Content "$out\$tag.err" -Encoding UTF8
             if ($p.ExitCode -ne 0) { throw "$tag failed with exit code $($p.ExitCode)" }
           }
+          # синтетические «исходный архив» и кандидат для сборки тестового каталога
+          python "$out\app\tests\synthetic_release.py" "$out\release" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "synthetic_release failed" }
+          function Invoke-PsAs($cred, [string]$release, [string]$tag) {
+            $py = (Get-Command python).Source
+            $ps = (Get-Command powershell).Source
+            $a = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$out\app\tools\Build-TestCatalog.ps1",
+                   "-Release", "$out\release\$release", "-Candidate", "$out\release\Synthetic_candidate.db",
+                   "-VarDir", "$out\catvar-$tag", "-Python", $py, "-ExpectedFile", "$out\release\expected.json")
+            $p = Start-Process -FilePath $ps -ArgumentList $a -Credential $cred -LoadUserProfile `
+                   -WorkingDirectory "$out\app" -RedirectStandardOutput "$out\$tag.out" `
+                   -RedirectStandardError "$out\$tag.err" -Wait -PassThru
+            Write-Output "===== $tag (exit $($p.ExitCode)) ====="
+            Get-Content "$out\$tag.out" -Encoding UTF8
+            Get-Content "$out\$tag.err" -Encoding UTF8
+            if ($p.ExitCode -ne 0) { throw "$tag failed with exit code $($p.ExitCode)" }
+          }
           try {
             $main = New-ProbeUser "nestor_main"
             $other = New-ProbeUser "nestor_other"
             Invoke-As $main @("tools/ci_windows_probe.py", "main", "--out", $out) "main"
             Invoke-As $main @("run_nestor.py", "--check-staging", "--var-dir", "$out\check-var") "check-staging-main"
             Invoke-As $other @("tools/ci_windows_probe.py", "other", "--out", $out) "other"
+            Invoke-PsAs $main "Synthetic_expert.tar.gz" "catalog-main-targz"
+            Invoke-PsAs $main "Synthetic_expert.zip" "catalog-main-zip"
+            $rep = Get-Content -Raw -Encoding UTF8 "$out\catvar-catalog-main-targz\test_catalog\BUILD_REPORT.json" | ConvertFrom-Json
+            if (-not $rep.ok -or -not $rep.enabled) { throw "catalog report not ok" }
+            if (-not (Test-Path "$out\catvar-catalog-main-targz\test_catalog\ENABLED")) { throw "catalog not enabled" }
+            Write-Output "catalog build as non-admin: ok, records=$($rep.counts.records)"
           } finally {
             foreach ($n in "nestor_main", "nestor_other") { Remove-LocalUser -Name $n -ErrorAction SilentlyContinue }
           }
