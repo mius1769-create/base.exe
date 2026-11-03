@@ -1,0 +1,47 @@
+name: NeSToR tests
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["nestor/**", ".github/workflows/nestor-tests.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: nestor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Обычная (не администратор) локальная учётная запись для проверки,
+      # что каталог временных загрузок недоступен другим пользователям.
+      - name: Create unprivileged probe user
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pw = "Nq7!" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "aZ"
+          Write-Output "::add-mask::$pw"
+          net user nestor_probe $pw /add | Out-Null
+          "NESTOR_PROBE_USER=nestor_probe" >> $env:GITHUB_ENV
+          "NESTOR_PROBE_PASSWORD=$pw" >> $env:GITHUB_ENV
+
+      - name: Unit tests
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+
+      - name: Staging directory check at launch
+        shell: bash
+        run: python run_nestor.py --check-staging --var-dir "$RUNNER_TEMP/nestor-var"

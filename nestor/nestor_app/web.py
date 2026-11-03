@@ -19,12 +19,13 @@ import email.policy
 
 from . import accounts, contacts, panels
 from . import importer as im
-from . import staging
+from . import backups, staging
 from . import user_import as ui
 from .db import checkpoint_truncate
 from . import markers as mk
 from . import profiles as pr
 from . import reference, search
+from .config import default_staging_dir
 from .config import DEFAULT_MAX_GD, DEFAULT_MIN_COMMON, GUEST_FRACTION, Settings, load_or_create_secret
 from .db import connect
 
@@ -61,17 +62,19 @@ class NestorApp:
         self.conn = connect(settings.users_db)
         self.secret = load_or_create_secret(settings.secret_file)
         self.lock = threading.Lock()
-        self.staging_dir = settings.staging_dir or (settings.var_dir / "staging")
+        self.staging_dir = settings.staging_dir or default_staging_dir(settings.var_dir)
+        self.staging_check = staging.ensure_private(self.staging_dir)   # проверка при запуске
         self.last_maintenance: dict = {}
         self._timer: threading.Timer | None = None
         self.maintenance()  # при запуске: очистка временных загрузок после сбоя / по сроку
 
     def maintenance(self) -> dict:
-        """Очистка временных загрузок и повторный checkpoint WAL (без ручного вмешательства)."""
+        """Очистка временных загрузок, старых резервных копий и повторный checkpoint WAL."""
         with self.lock:
             stats = staging.sweep(self.staging_dir)
             ck = checkpoint_truncate(self.conn)
-        self.last_maintenance = {**stats, "checkpoint": ck.status}
+        pruned = backups.prune(self.settings.var_dir / "backups", backups.keep_days_from_env())
+        self.last_maintenance = {**stats, "checkpoint": ck.status, "backups_pruned": len(pruned)}
         return self.last_maintenance
 
     def start_maintenance_timer(self, interval: float = staging.SWEEP_INTERVAL_SECONDS) -> None:
@@ -479,6 +482,10 @@ Y700 не поддерживается.</p></div>"""
     def _import_form(self, sess):
         if not sess:
             return self._redirect("/login")
+        chk = self.nestor.staging_check
+        if not chk.ok:
+            return self._error("Загрузка файлов отключена: временный каталог не защищён — "
+                               + "; ".join(chk.problems) + ". Проверка: py -3 run_nestor.py --check-staging", sess, 503)
         self._page("Импорт из файла", f"""<div class="card"><h2>Импорт профилей из файла</h2>
 <form method="post" action="/import" enctype="multipart/form-data">
 <input type="hidden" name="csrf" value="{esc(sess[1])}">
@@ -540,8 +547,8 @@ Y700 не поддерживается.</p></div>"""
 <p><label><input type="checkbox" name="keep_original" value="1"> Дополнительно сохранить полный исходный файл
 для локального аудита (необязательно).</label><br><span class="warn">Внимание: вместе с файлом сохранятся
 <b>все</b> его строки и листы, включая профили, которые вы не выбрали. Из активной базы файл удаляется вместе
-с последним сохранённым из него профилем; в уже сделанных резервных копиях базы он остаётся до их удаления
-по сроку хранения копий.</span></p>
+с последним сохранённым из него профилем; в уже сделанных резервных копиях базы он остаётся до их очистки (срок хранения копий
+применяется, когда запускается очистка, и не является гарантированным максимумом).</span></p>
 <button>Сохранить выбранные</button></form>
 <form method="post" action="/import/{upload_id}/discard"><input type="hidden" name="csrf" value="{esc(csrf)}">
 <button>Отменить и удалить файл</button></form></div>"""

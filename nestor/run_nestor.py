@@ -18,9 +18,18 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--var-dir", default=None, help="папка для nestor_users.db и секрета (по умолчанию nestor/var)")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--check-staging", action="store_true",
+                    help="создать/защитить каталог временных загрузок, проверить ACL и выйти")
     args = ap.parse_args()
 
     settings = load_settings(args.var_dir)
+    if args.check_staging:
+        from nestor_app import secure_dir
+        chk = secure_dir.prepare_private_dir(settings.staging_dir)
+        print(f"Каталог временных загрузок: {chk.path} ({chk.platform})")
+        print(f"Доступ разрешён: {', '.join(map(str, chk.principals)) or '—'}")
+        print("Проверка пройдена." if chk.ok else "Проблемы: " + "; ".join(chk.problems))
+        raise SystemExit(0 if chk.ok else 1)
     if args.port:
         settings = settings.__class__(**{**settings.__dict__, "port": args.port})
     app = NestorApp(settings)
@@ -28,6 +37,10 @@ def main() -> None:
     server = app.make_server()
     url = f"http://{settings.host}:{settings.port}/"
     print(f"NeSToR запущен: {url}  (база: {settings.users_db})")
+    if app.staging_check.ok:
+        print(f"Временные загрузки: {app.staging_dir} (доступ только текущему пользователю — проверено)")
+    else:
+        print("ВНИМАНИЕ: загрузка файлов отключена — " + "; ".join(app.staging_check.problems))
     print("Остановить: Ctrl+C")
     if not args.no_browser:
         webbrowser.open(url)

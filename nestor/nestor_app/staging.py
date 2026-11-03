@@ -1,7 +1,9 @@
 """Временное хранение загруженных файлов — вне пользовательской базы.
 
 Незавершённая загрузка (между загрузкой файла и решением владельца) хранится
-в отдельной папке var/staging/ двумя файлами: <id>.bin (содержимое) и <id>.json
+в отдельном приватном каталоге (Linux/macOS: var/staging/, 0700; Windows:
+%LOCALAPPDATA%/NeSToR/staging с явно заданным и проверенным ACL — см. secure_dir)
+двумя файлами: <id>.bin (содержимое) и <id>.json
 (владелец, имя файла, SHA-256, выбранная панель, время). В пользовательскую
 SQLite-базу она не пишется, поэтому не попадает в её резервные копии
 (tools/backup_users.py копирует только базу).
@@ -26,6 +28,8 @@ import secrets
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import secure_dir
 
 TTL_SECONDS = 24 * 3600
 SWEEP_INTERVAL_SECONDS = 3600
@@ -76,8 +80,24 @@ def _remove(path: Path) -> bool:
         return False
 
 
+_verified: dict[str, secure_dir.DirCheck] = {}
+
+
+def ensure_private(root: Path) -> secure_dir.DirCheck:
+    """Создать и защитить каталог; результат проверки кэшируется на время процесса."""
+    key = str(Path(root).resolve())
+    check = _verified.get(key)
+    if check is None or not check.ok or not Path(root).is_dir():
+        check = secure_dir.prepare_private_dir(Path(root))
+        _verified[key] = check
+    return check
+
+
 def put(root: Path, owner_user_id: int, filename: str, data: bytes, panel_choice: str) -> Staged:
-    root.mkdir(parents=True, exist_ok=True)
+    check = ensure_private(root)
+    if not check.ok:
+        raise StagingError("временный каталог загрузок не защищён (" + "; ".join(check.problems)
+                           + ") — загрузка файлов отключена")
     for s in list_for(root, owner_user_id):  # одна незавершённая загрузка на владельца
         delete(root, s.upload_id)
     upload_id = secrets.token_hex(_ID_LEN // 2)

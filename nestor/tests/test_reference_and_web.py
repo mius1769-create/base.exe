@@ -75,7 +75,8 @@ class TestWebSmoke(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         var = Path(cls.tmp.name)
         settings = Settings(var_dir=var, users_db=var / "u.db", secret_file=var / "s.key",
-                            manifest_file=var / "MANIFEST.json", port=0)
+                            manifest_file=var / "MANIFEST.json", port=0,
+                            staging_dir=var / "staging")  # не трогать настоящий %LOCALAPPDATA% на Windows
         cls.app = NestorApp(settings)
         cls.server = cls.app.make_server()
         cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"

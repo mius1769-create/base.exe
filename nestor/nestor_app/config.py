@@ -24,8 +24,23 @@ class Settings:
     secret_file: Path
     manifest_file: Path
     host: str = "127.0.0.1"
-    staging_dir: Path | None = None  # временные загрузки; по умолчанию var/staging
+    staging_dir: Path | None = None  # временные загрузки; по умолчанию default_staging_dir()
     port: int = 8765
+
+
+def default_staging_dir(var_dir: Path) -> Path:
+    """Каталог временных загрузок.
+
+    NESTOR_STAGING_DIR — явное значение. Иначе на Windows — внутри локального
+    профиля пользователя (%LOCALAPPDATA%/NeSToR/staging), на остальных ОС — var/staging.
+    ACL / права задаются и проверяются в nestor_app.secure_dir.
+    """
+    explicit = os.environ.get("NESTOR_STAGING_DIR")
+    if explicit:
+        return Path(explicit)
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "NeSToR" / "staging"
+    return var_dir / "staging"
 
 
 def load_settings(var_dir: str | os.PathLike | None = None) -> Settings:
@@ -36,7 +51,7 @@ def load_settings(var_dir: str | os.PathLike | None = None) -> Settings:
         users_db=base / "nestor_users.db",
         secret_file=base / "server_secret.key",
         manifest_file=NESTOR_ROOT / "data" / "MANIFEST.json",
-        staging_dir=base / "staging",
+        staging_dir=default_staging_dir(base),
         port=int(os.environ.get("NESTOR_PORT", "8765")),
     )
 

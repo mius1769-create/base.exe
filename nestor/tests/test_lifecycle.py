@@ -100,6 +100,27 @@ class TestStagingLifecycle(Base):
         self.assertEqual(list(self.stg.iterdir()), [])
 
 
+class TestBackupRetentionInApp(Base):
+    def test_app_maintenance_prunes_old_backups(self):
+        old = backup_users.make_backup(self.db_path, self.var / "backups", now=time.time() - 30 * 86400)
+        os.utime(old, (time.time() - 30 * 86400,) * 2)
+        fresh = backup_users.make_backup(self.db_path, self.var / "backups")
+        self.conn.close()
+        settings = Settings(var_dir=self.var, users_db=self.db_path, secret_file=self.var / "s.key",
+                            manifest_file=self.var / "M.json", port=0, staging_dir=self.stg)
+        app = NestorApp(settings)                                     # очистка при запуске приложения
+        self.addCleanup(app.conn.close)
+        self.assertEqual(app.last_maintenance["backups_pruned"], 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())
+
+    def test_prune_only_cli(self):
+        old = backup_users.make_backup(self.db_path, self.var / "backups", now=time.time() - 30 * 86400)
+        os.utime(old, (time.time() - 30 * 86400,) * 2)
+        self.assertEqual(backup_users.main(["--var-dir", str(self.var), "--prune-only", "--keep-days", "14"]), 0)
+        self.assertEqual(list((self.var / "backups").iterdir()), [])     # новая копия не создавалась
+
+
 class TestCheckpointResult(Base):
     def test_incomplete_checkpoint_is_reported(self):
         upload, _ = ui.stage(self.conn, self.stg, self.uid, "k.csv", csv_bytes("A1"))
