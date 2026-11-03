@@ -1,0 +1,297 @@
+{
+  "sources": 33,
+  "records": 60011,
+  "individual_records": 51985,
+  "aggregated_records": 8026,
+  "aggregated_observations": 8612,
+  "dedup": {
+    "Scientific_Purps2014_PPY23": {
+      "archive_source": "purps2014",
+      "identical": true,
+      "candidate_records": 19630,
+      "archive_records": 19630
+    },
+    "Scientific_NIST1032_UAS24": {
+      "archive_source": "nist2022",
+      "identical": true,
+      "candidate_records": 1032,
+      "archive_records": 1032
+    }
+  },
+  "skipped_duplicate_copies": 20662,
+  "id_collisions": 8,
+  "since_overlaps": {
+    "Scientific_Balanovsky2011_Caucasus": 1134,
+    "Scientific_Roewer2008_WesternRussia": 531
+  },
+  "unverified_sources": [
+    "behar2017",
+    "nist2022",
+    "maniot2026",
+    "volgaoka2025",
+    "russian2021",
+    "g1_2015",
+    "tuvaQR2026",
+    "mordovia2024",
+    "turkmen2024",
+    "g2012",
+    "kazakh2020",
+    "r1a2015",
+    "tuvaQR2026_ancient",
+    "tuvaQR2026_literature",
+    "tuvaNO2026_literature",
+    "kharkov_stepanov_koryak2024",
+    "mustafin_yaroslavl_grave76_2022",
+    "mustafin_yaroslavl_graves9_110_2022",
+    "alborova_mustafin_moscow2021",
+    "mustafin_radonezh2018",
+    "veselovskaya_mustafin_tolyon2024",
+    "engovatova_mustafin_fatyanovo2022",
+    "purps2014",
+    "heraclides_cyprus2017",
+    "thailand_tak_ranong2024",
+    "kabaev_klyazma2022",
+    "sirotin_mustafin_crimea2019",
+    "adamov_balanovska2026",
+    "user_scientific_since_20261008",
+    "Scientific_Balanovsky2011_Caucasus",
+    "Scientific_Ballantyne2014_RM_YSTR",
+    "Scientific_Roewer2008_WesternRussia",
+    "Scientific_Underhill2010_R1a_YSTR37"
+  ],
+  "by_source": {
+    "behar2017": {
+      "snapshot": "archive",
+      "records": 85,
+      "observations": 85,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "nist2022": {
+      "snapshot": "archive",
+      "records": 1032,
+      "observations": 1032,
+      "kind": "individual",
+      "status": "ждём подтверждения (происхождение и состав подтверждены, использование в NeSToR ожидает проверки условий)"
+    },
+    "maniot2026": {
+      "snapshot": "archive",
+      "records": 12722,
+      "observations": 12722,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "volgaoka2025": {
+      "snapshot": "archive",
+      "records": 181,
+      "observations": 181,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "russian2021": {
+      "snapshot": "archive",
+      "records": 691,
+      "observations": 691,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "g1_2015": {
+      "snapshot": "archive",
+      "records": 141,
+      "observations": 141,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "tuvaQR2026": {
+      "snapshot": "archive",
+      "records": 202,
+      "observations": 202,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "mordovia2024": {
+      "snapshot": "archive",
+      "records": 36,
+      "observations": 36,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "turkmen2024": {
+      "snapshot": "archive",
+      "records": 100,
+      "observations": 100,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "g2012": {
+      "snapshot": "archive",
+      "records": 554,
+      "observations": 554,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "kazakh2020": {
+      "snapshot": "archive",
+      "records": 115,
+      "observations": 115,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "r1a2015": {
+      "snapshot": "archive",
+      "records": 1001,
+      "observations": 1001,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "tuvaQR2026_ancient": {
+      "snapshot": "archive",
+      "records": 44,
+      "observations": 44,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "tuvaQR2026_literature": {
+      "snapshot": "archive",
+      "records": 59,
+      "observations": 59,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "tuvaNO2026_literature": {
+      "snapshot": "archive",
+      "records": 12,
+      "observations": 12,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "kharkov_stepanov_koryak2024": {
+      "snapshot": "archive",
+      "records": 62,
+      "observations": 62,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "mustafin_yaroslavl_grave76_2022": {
+      "snapshot": "archive",
+      "records": 7,
+      "observations": 7,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "mustafin_yaroslavl_graves9_110_2022": {
+      "snapshot": "archive",
+      "records": 14,
+      "observations": 14,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "alborova_mustafin_moscow2021": {
+      "snapshot": "archive",
+      "records": 2,
+      "observations": 2,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "mustafin_radonezh2018": {
+      "snapshot": "archive",
+      "records": 1,
+      "observations": 1,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "veselovskaya_mustafin_tolyon2024": {
+      "snapshot": "archive",
+      "records": 1,
+      "observations": 1,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "engovatova_mustafin_fatyanovo2022": {
+      "snapshot": "archive",
+      "records": 7,
+      "observations": 7,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "purps2014": {
+      "snapshot": "archive",
+      "records": 19630,
+      "observations": 19630,
+      "kind": "individual",
+      "status": "ждём подтверждения"
+    },
+    "heraclides_cyprus2017": {
+      "snapshot": "archive",
+      "records": 344,
+      "observations": 344,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "thailand_tak_ranong2024": {
+      "snapshot": "archive",
+      "records": 311,
+      "observations": 311,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "kabaev_klyazma2022": {
+      "snapshot": "archive",
+      "records": 2,
+      "observations": 2,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "sirotin_mustafin_crimea2019": {
+      "snapshot": "archive",
+      "records": 3,
+      "observations": 3,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "adamov_balanovska2026": {
+      "snapshot": "archive",
+      "records": 4,
+      "observations": 4,
+      "kind": "individual",
+      "status": "не проверено"
+    },
+    "user_scientific_since_20261008": {
+      "snapshot": "archive",
+      "records": 8026,
+      "observations": 8612,
+      "kind": "aggregated",
+      "status": "не проверено"
+    },
+    "Scientific_Balanovsky2011_Caucasus": {
+      "snapshot": "candidate",
+      "records": 1515,
+      "observations": 1515,
+      "kind": "individual",
+      "status": "исключён"
+    },
+    "Scientific_Ballantyne2014_RM_YSTR": {
+      "snapshot": "candidate",
+      "records": 12272,
+      "observations": 12272,
+      "kind": "individual",
+      "status": "ждём подтверждения"
+    },
+    "Scientific_Roewer2008_WesternRussia": {
+      "snapshot": "candidate",
+      "records": 545,
+      "observations": 545,
+      "kind": "individual",
+      "status": "ждём подтверждения"
+    },
+    "Scientific_Underhill2010_R1a_YSTR37": {
+      "snapshot": "candidate",
+      "records": 290,
+      "observations": 290,
+      "kind": "individual",
+      "status": "исключён"
+    }
+  },
+  "candidate_sha256": "c6f713b1a0db0966fbabbfaae8fc926934ddd3131fccb591d7686719a7ba7d7d",
+  "archive_sha256": "98a9941661d1461bdda478fed77426fca19c1fca80e85fa899ee1a8b1906be9e"
+}

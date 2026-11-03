@@ -20,6 +20,7 @@ import email.policy
 from . import accounts, contacts, panels
 from . import importer as im
 from . import backups, staging
+from . import test_catalog as tc
 from . import user_import as ui
 from .db import checkpoint_truncate
 from . import markers as mk
@@ -65,9 +66,19 @@ class NestorApp:
         self.staging_dir = settings.staging_dir or default_staging_dir(settings.var_dir)
         self.staging_check = staging.ensure_private(self.staging_dir)   # проверка при запуске
         self.last_maintenance: dict = {}
+        self._catalog = None   # локальный тестовый научный каталог (если включён)
         self._timer: threading.Thread | None = None
         self._stop_event = threading.Event()
         self.maintenance()  # при запуске: очистка временных загрузок после сбоя / по сроку
+
+    def test_catalog(self):
+        """Тестовый каталог, только пока он включён; выключение и удаление действуют без перезапуска."""
+        if not tc.is_enabled(self.settings.var_dir):
+            self._catalog = None
+            return None
+        if self._catalog is None:
+            self._catalog = tc.Catalog(tc.catalog_path(self.settings.var_dir))
+        return self._catalog
 
     def maintenance(self) -> dict:
         """Очистка временных загрузок, старых резервных копий и повторный checkpoint WAL."""
@@ -429,7 +440,9 @@ Y700 не поддерживается.</p></div>"""
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
-                   f'{self._match_table(res.matches)}</div>' + self._search_form(text, max_gd, min_common, excluded, panel))
+                   f'{self._match_table(res.matches)}</div>'
+                   + self._catalog_block(query, max_gd, min_common, excluded)
+                   + self._search_form(text, max_gd, min_common, excluded, panel))
         self._page("Результаты", content, sess)
 
     def _register_form(self, sess):
@@ -642,6 +655,28 @@ Y700 не поддерживается.</p></div>"""
                 f'{"Полный исходный файл сохранён по вашему согласию." if src["import_file_id"] else "Полный файл не хранится — только ячейки этой строки."}</p>'
                 f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details></div>')
 
+    def _catalog_block(self, query, max_gd, min_common, excluded) -> str:
+        cat = self.nestor.test_catalog()
+        if cat is None:
+            return ""
+        matches = cat.search(query, max_gd=max_gd, min_common=min_common, excluded=self._excluded_list(excluded))
+        rows = []
+        for m in matches:
+            kind = "индивидуальная запись" if m.record_kind == "individual" else f"агрегированное наблюдение, N={m.observed_n}"
+            rows.append(f"<tr><td>{esc(m.source_id)}</td><td>{esc(m.sample_id)}</td><td>{esc(m.population) or '—'}</td>"
+                        f"<td>{esc(kind)}</td><td>{m.gd} (предварительно)</td><td>сравнено {m.compared} из {m.panel_overlap}</td>"
+                        f"<td class='warn'>{esc(m.verification_status)}; {esc(m.reuse_note)}</td>"
+                        f"<td class='muted'>{esc('; '.join(m.flags)) or '—'}</td></tr>")
+        table = ("<table><tr><th>Источник</th><th>Sample ID</th><th>Популяция</th><th>Тип</th><th>GD</th>"
+                 "<th>Локусы</th><th>Статус и права</th><th>Пометки</th></tr>" + "".join(rows) + "</table>"
+                 if rows else '<p class="muted">Совпадений в тестовом каталоге нет.</p>')
+        return ('<div class="card"><h2>Научный тестовый каталог — ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</h2>'
+                '<p class="warn"><b>Непроверенные данные.</b> Каталог собран из двух научных снимков только для '
+                'локального тестирования: источники не допущены в справочник NeSToR, право на повторное '
+                'использование не подтверждено, шкалы аллелей источников не откалиброваны — все GD предварительные. '
+                'Агрегированные наблюдения — гаплотипы с численностью N, а не отдельные люди. Отключение: '
+                '<code>py -3 tools/build_test_catalog.py disable</code>.</p>' + table + '</div>')
+
     def _owner_matches(self, sess, pid):
         if not sess:
             return self._redirect("/login")
@@ -659,5 +694,6 @@ Y700 не поддерживается.</p></div>"""
                    f'сравнено (вошло в GD) ≥ <input type="text" name="min_common" value="{min_common}" size="3"> '
                    f'исключить локусы <input type="text" name="excluded" value="{esc(excluded)}" size="25"> '
                    f'<button>Обновить</button></p></form>{self._legend()}'
-                   f'{self._match_table(matches, contact_csrf=sess[1])}</div>')
+                   f'{self._match_table(matches, contact_csrf=sess[1])}</div>'
+                   + self._catalog_block(pr.get_owned(self.nestor.conn, sess[0], pid).markers, max_gd, min_common, excluded))
         self._page("Совпадения", content, sess)
