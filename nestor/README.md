@@ -81,10 +81,30 @@ nestor/
     accounts.py    аккаунты и сессии
     reference.py   замок научного справочника
     web.py         локальный веб-интерфейс
-  tools/inspect_reference.py   паспорт и сверка снимков справочника (только чтение)
+    reference_schema.py  схема научного справочника: неизменяемые сырые записи,
+                         отдельные преобразования с правилом, QC-находки
+  tools/inspect_reference.py     паспорт и сверка снимков справочника (только чтение)
+  tools/qc_reference.py          QC-отчёт по снимку (только чтение)
+  tools/render_source_audit.py   отчёт и таблица решений по источникам
+  data/source_audit.json         решения по источникам и сценариям использования
+  data/transform_rules.json      предложенные преобразования (не применены)
   tests/           тесты + synthetic.py + vectors/guest_sampling_v1.json
   data/            место для справочника и MANIFEST.json (пусто)
   docs/DECISIONS.md
+```
+
+## Научный справочник
+
+Справочник пустой: ни один источник не допущен
+([docs/SCIENTIFIC_SOURCES_AUDIT.md](docs/SCIENTIFIC_SOURCES_AUDIT.md)). Обновить отчёт
+после изменения решений или QC:
+
+```bash
+py -3 tools/qc_reference.py ПУТЬ\К\Nestor_scientific_YSTR.db --summary docs/QC_SUMMARY.json --details var/qc_details.csv
+```
+
+```bash
+py -3 tools/render_source_audit.py
 ```
 
 ## Известные ограничения

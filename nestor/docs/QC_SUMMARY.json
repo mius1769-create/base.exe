@@ -1,0 +1,173 @@
+{
+  "snapshot": "786045b4-Nestor_scientific_YSTR.db",
+  "sha256": "c6f713b1a0db0966fbabbfaae8fc926934ddd3131fccb591d7686719a7ba7d7d",
+  "records": 35284,
+  "checks": {
+    "Q01": "zero_allele",
+    "Q02": "nonnumeric_value",
+    "Q03": "multi_value_single",
+    "Q04": "outlier",
+    "Q05": "dys389_inconsistent",
+    "Q06": "sparse_profile",
+    "Q07": "locus_alias",
+    "Q08": "scale_shift",
+    "Q09": "derived_locus",
+    "Q10": "metadata_count"
+  },
+  "by_source": {
+    "Scientific_Balanovsky2011_Caucasus": {
+      "records": 1515,
+      "findings": {
+        "Q04": 1,
+        "Q06": 28,
+        "Q07": 1
+      },
+      "records_affected": {
+        "Q04": 1,
+        "Q06": 28
+      },
+      "source_level": [
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "Y GATA H4"
+          ],
+          "note": "написание в источнике"
+        }
+      ]
+    },
+    "Scientific_Ballantyne2014_RM_YSTR": {
+      "records": 12272,
+      "findings": {
+        "Q01": 9,
+        "Q02": 40,
+        "Q03": 113,
+        "Q04": 148,
+        "Q05": 10,
+        "Q07": 1
+      },
+      "records_affected": {
+        "Q01": 9,
+        "Q02": 33,
+        "Q03": 111,
+        "Q04": 146,
+        "Q05": 10
+      },
+      "source_level": [
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "GATA H4"
+          ],
+          "note": "написание в источнике"
+        }
+      ]
+    },
+    "Scientific_NIST1032_UAS24": {
+      "records": 1032,
+      "findings": {
+        "Q03": 18,
+        "Q04": 10,
+        "Q07": 1
+      },
+      "records_affected": {
+        "Q03": 14,
+        "Q04": 10
+      },
+      "source_level": [
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "Y GATA H4"
+          ],
+          "note": "написание в источнике"
+        }
+      ]
+    },
+    "Scientific_Purps2014_PPY23": {
+      "records": 19630,
+      "findings": {
+        "Q01": 133,
+        "Q03": 135,
+        "Q04": 38,
+        "Q07": 1
+      },
+      "records_affected": {
+        "Q01": 94,
+        "Q03": 125,
+        "Q04": 38
+      },
+      "source_level": [
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "Y GATA H4"
+          ],
+          "note": "написание в источнике"
+        }
+      ]
+    },
+    "Scientific_Roewer2008_WesternRussia": {
+      "records": 545,
+      "findings": {
+        "Q01": 2,
+        "Q07": 1
+      },
+      "records_affected": {
+        "Q01": 2
+      },
+      "source_level": [
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "Y GATA H4"
+          ],
+          "note": "написание в источнике"
+        }
+      ]
+    },
+    "Scientific_Underhill2010_R1a_YSTR37": {
+      "records": 290,
+      "findings": {
+        "Q03": 1,
+        "Q04": 252,
+        "Q06": 1,
+        "Q07": 1,
+        "Q08": 1,
+        "Q09": 1
+      },
+      "records_affected": {
+        "Q03": 1,
+        "Q04": 252,
+        "Q06": 1
+      },
+      "source_level": [
+        {
+          "check": "Q08",
+          "locus": "Y-GATA-H4",
+          "raw_value": 21.0,
+          "note": "медиана в источнике 21.0, в остальных 12.0"
+        },
+        {
+          "check": "Q07",
+          "locus": "Y-GATA-H4",
+          "raw_value": [
+            "Y GATA H4"
+          ],
+          "note": "написание в источнике"
+        },
+        {
+          "check": "Q09",
+          "locus": "DYS389II",
+          "raw_value": 277,
+          "note": "DYS389II = DYS389I + DYS389B во всех записях с тремя значениями"
+        }
+      ]
+    }
+  }
+}

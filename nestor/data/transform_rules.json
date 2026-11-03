@@ -1,0 +1,55 @@
+{
+  "note": "Предложенные правила преобразования. Ни одно не применено: сырые значения не меняются, результат будет храниться в derived_values с rule_id. Статус меняется на approved только после подтверждения основания.",
+  "rules": [
+    {
+      "rule_id": "T01-alias-ygatah4",
+      "description": "Ключи 'Y GATA H4' и 'GATA H4' считать одним локусом Y-GATA-H4 (только имя, значения не меняются)",
+      "applies_to": {"sources": "все", "loci": ["Y GATA H4", "GATA H4"]},
+      "basis": "QC Q07; одинаковая медиана 12 в источниках, где шкала совпадает (QC Q08 не срабатывает)",
+      "excluded": ["Scientific_Underhill2010_R1a_YSTR37 — другая шкала (QC Q08), правило к нему не применяется"],
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T02-zero-as-missing",
+      "description": "Аллель 0 не участвует в сравнении (локус считается неопределённым)",
+      "applies_to": {"sources": ["Scientific_Purps2014_PPY23", "Scientific_Ballantyne2014_RM_YSTR", "Scientific_Roewer2008_WesternRussia"], "loci": "любые"},
+      "basis": "QC Q01; смысл нуля (null-аллель, делеция или пропуск) нужно подтвердить по легенде первичной таблицы каждого источника",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T03-exclude-dys389b",
+      "description": "DYS389B (= DYS389II − DYS389I) не участвует в GD, чтобы не учитывать один участок дважды",
+      "applies_to": {"sources": ["Scientific_Underhill2010_R1a_YSTR37"], "loci": ["DYS389B"]},
+      "basis": "source_metadata.notes Underhill 2010; QC Q09",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T04-flag-derived-dys389ii",
+      "description": "DYS389II у Underhill 2010 помечать как производное (DYS389I + DYS389B), а не опубликованное значение",
+      "applies_to": {"sources": ["Scientific_Underhill2010_R1a_YSTR37"], "loci": ["DYS389II"]},
+      "basis": "source_metadata.notes Underhill 2010; QC Q09 (277 из 277)",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T05-exclude-dys389ii-inconsistent",
+      "description": "DYS389II не участвует в сравнении у записей, где DYS389II − DYS389I < 9",
+      "applies_to": {"sources": ["Scientific_Ballantyne2014_RM_YSTR"], "loci": ["DYS389II"], "records": "QC Q05 (10 записей)"},
+      "basis": "QC Q05; сверить с первичной Table S6 — возможно, в источнике для этой популяции опубликовано DYS389II−I",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T06-exclude-nonnumeric",
+      "description": "Строковые значения аллелей не участвуют в сравнении до ручной проверки; двойные аллели вида '19,20' не разворачиваются автоматически",
+      "applies_to": {"sources": ["Scientific_Ballantyne2014_RM_YSTR"], "loci": "любые", "records": "QC Q02"},
+      "basis": "QC Q02",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T07-ftdna-nomenclature",
+      "description": "Пересчёт номенклатуры между публикациями и FTDNA",
+      "applies_to": {"sources": "все", "loci": "по таблице архива"},
+      "basis": "таблица преобразования аллелей из экспертного архива — ещё не получена",
+      "status": "proposed"
+    }
+  ]
+}

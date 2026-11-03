@@ -6,176 +6,393 @@
     "note": "Научный кандидат. Не база Genopoisk GD, не пользовательские данные, не FTDNA-выгрузки. Со снимком 45 389 из архива не объединяется."
   },
   "audit_date": "2026-11-03",
-  "status_legend": {
-    "propose_include_conditional": "предлагается к включению после подтверждения условий на первичной странице издателя/репозитория",
-    "exclude_pending_terms": "не включать: условия повторного использования не подтверждены",
-    "exclude_pending_permission": "не включать: требуется разрешение правообладателя"
+  "rules": {
+    "raw_values": "Сырые значения не исправляются и не перезаписываются; ошибки — в QC (docs/QC_SUMMARY.json), преобразования — в data/transform_rules.json",
+    "article_vs_dataset": "Лицензия статьи не считается лицензией на дополнительные таблицы",
+    "open_access": "Свободный доступ к статье не считается разрешением на перепубликацию данных",
+    "user_search": "Ни один источник не подключён к пользовательскому поиску NeSToR",
+    "import": "Импорт в справочник — только для источников со статусом «допущен»"
   },
+  "verdicts": [
+    "допустимо",
+    "недопустимо",
+    "ждём подтверждения"
+  ],
+  "decisions": [
+    "допущен",
+    "исключён",
+    "ждём подтверждения"
+  ],
   "sources": [
     {
       "source": "Scientific_Purps2014_PPY23",
       "records": 19630,
+      "citation": "Purps J, et al. A global analysis of Y-chromosomal haplotype diversity for 23 STR loci. Forensic Sci Int Genet. 2014;12:12-23.",
       "doi": "10.1016/j.fsigen.2014.04.008",
-      "license_claim": "CC BY 3.0",
-      "license_evidence": [
-        {
-          "url": "https://eprints.whiterose.ac.uk/id/eprint/108163/",
-          "kind": "репозиторий (вторичный)",
-          "text": "This is an open access article under the CC BY license (http://creativecommons.org/licenses/by/3.0/)"
+      "dataset": {
+        "table": "Supplementary mmc1 (гаплотипы 23 локусов)",
+        "raw_file": "Purps2014_mmc1.xlsx",
+        "primary_location": "https://doi.org/10.1016/j.fsigen.2014.04.008 (раздел Appendix A. Supplementary data)",
+        "dataset_terms": {
+          "statement": "Не установлены отдельно для таблицы.",
+          "confirmed": false,
+          "to_confirm": "есть ли у файла mmc1 собственная лицензия или пометка, что supplementary распространяется на условиях статьи"
         }
+      },
+      "article_terms": {
+        "statement": "CC BY 3.0 (статья)",
+        "confirmed": false,
+        "evidence": [
+          {
+            "url": "https://eprints.whiterose.ac.uk/id/eprint/108163/",
+            "kind": "репозиторий, вторично",
+            "text": "This is an open access article under the CC BY license (http://creativecommons.org/licenses/by/3.0/)"
+          }
+        ],
+        "primary_to_confirm": [
+          "https://doi.org/10.1016/j.fsigen.2014.04.008",
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC4127773/"
+        ]
+      },
+      "attribution": "Purps J, et al. 2014, Forensic Sci Int Genet 12:12-23, doi:10.1016/j.fsigen.2014.04.008; supplementary mmc1; лицензия набора — после подтверждения",
+      "quality": [
+        "QC Q01: 94 записи с аллелем 0 (133 значения)",
+        "QC Q03: 125 записей с несколькими значениями однокопийного локуса",
+        "QC Q04: 38 значений вне диапазона — ручная проверка",
+        "состав локусов совпадает с PPY23 (22 ключа = 23 локуса)"
       ],
-      "primary_to_confirm": [
-        "https://doi.org/10.1016/j.fsigen.2014.04.008",
-        "https://pmc.ncbi.nlm.nih.gov/articles/PMC4127773/"
-      ],
-      "condition": "CC BY 3.0: копирование, распространение и переработка разрешены при указании авторства, ссылки на лицензию и указания изменений. Нужно подтвердить, что файл mmc1 (supplementary) покрыт той же лицензией.",
-      "status": "propose_include_conditional",
-      "row_fixes": [
-        "94 профиля содержат аллель 0 — считать локус отсутствующим (null/не определён)"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора не подтверждены первично; до подтверждения — только локальный аудит качества кандидата (чтение, без импорта в справочник и без участия в поиске)"
+        },
+        "genealogical_matching": {
+          "verdict": "ждём подтверждения",
+          "basis": "лицензия набора и рамки согласия не подтверждены; в пользовательский поиск не подключать"
+        },
+        "public_distribution": {
+          "verdict": "ждём подтверждения",
+          "basis": "CC BY статьи не считается подтверждением лицензии на supplementary"
+        }
+      },
+      "decision": "ждём подтверждения",
+      "needed": [
+        "первичная страница статьи: условия supplementary",
+        "этика/согласие в статье",
+        "легенда таблицы: смысл 0 и двойных значений"
       ]
     },
     {
       "source": "Scientific_Ballantyne2014_RM_YSTR",
       "records": 12272,
+      "citation": "Ballantyne KN, et al. Toward Male Individualization with Rapidly Mutating Y-Chromosomal Short Tandem Repeats. Hum Mutat. 2014;35(8):1021-1032.",
       "doi": "10.1002/humu.22599",
-      "license_claim": "CC BY 3.0",
-      "license_evidence": [
-        {
-          "url": "https://repositori.upf.edu/items/8b5758ba-6936-45a7-b011-9a09d6a8c4f0",
-          "kind": "репозиторий (вторичный)",
-          "text": "rights URI: http://creativecommons.org/licenses/by/3.0/; © 2014, Kaye N. Ballantyne et al."
-        },
-        {
-          "url": "https://eprints.whiterose.ac.uk/id/eprint/108164/",
-          "kind": "репозиторий (вторичный)",
-          "text": "open access article under the terms of the Creative Commons Attribution License"
+      "dataset": {
+        "table": "Supporting Information, Table S6",
+        "raw_file": "humu0035-1021-SD2.xlsx",
+        "primary_location": "https://doi.org/10.1002/humu.22599 (Supporting Information)",
+        "dataset_terms": {
+          "statement": "Не установлены отдельно для таблицы.",
+          "confirmed": false,
+          "to_confirm": "покрывает ли лицензия статьи Supporting Information (у Wiley SI предоставляется авторами и может иметь иные условия)"
         }
+      },
+      "article_terms": {
+        "statement": "CC BY 3.0 (статья)",
+        "confirmed": false,
+        "evidence": [
+          {
+            "url": "https://repositori.upf.edu/items/8b5758ba-6936-45a7-b011-9a09d6a8c4f0",
+            "kind": "репозиторий, вторично",
+            "text": "rights URI http://creativecommons.org/licenses/by/3.0/; © 2014, Kaye N. Ballantyne et al."
+          },
+          {
+            "url": "https://eprints.whiterose.ac.uk/id/eprint/108164/",
+            "kind": "репозиторий, вторично",
+            "text": "open access article under the terms of the Creative Commons Attribution License"
+          }
+        ],
+        "primary_to_confirm": [
+          "https://doi.org/10.1002/humu.22599"
+        ]
+      },
+      "attribution": "Ballantyne KN, et al. 2014, Hum Mutat 35(8):1021-1032, doi:10.1002/humu.22599; Supporting Information Table S6; лицензия набора — после подтверждения",
+      "quality": [
+        "QC Q05: 10 записей одной популяции, где DYS389II − DYS389I < 9 (похоже на DYS389II−I)",
+        "QC Q02: 33 записи со строковыми значениями (40 значений), в т.ч. одно явно некорректное",
+        "QC Q01: 9 записей с аллелем 0",
+        "QC Q03: 111 записей с несколькими значениями однокопийного локуса",
+        "QC Q04: 146 записей с выбросами — в основном быстромутирующие локусы с широким диапазоном, ручная проверка",
+        "QC Q07: локус записан как 'GATA H4'"
       ],
-      "primary_to_confirm": [
-        "https://doi.org/10.1002/humu.22599"
-      ],
-      "condition": "CC BY 3.0 при указании авторства. Нужно подтвердить, что Supporting Information (humu0035-1021-SD2.xlsx, Table S6) покрыт лицензией статьи.",
-      "status": "propose_include_conditional",
-      "row_fixes": [
-        "10 профилей Tehuelches (Argentina): DYS389II = 15–17 при DYS389I = 13–14 — это значение DYS389II−I, а не сумма; локус DYS389II для них не использовать",
-        "1 профиль: DYS389I записан как '131,4' — некорректное значение, локус не использовать",
-        "9 профилей с аллелем 0 — считать локус отсутствующим",
-        "ключ 'GATA H4' сводится к Y-GATA-H4 (медиана 12, шкала совпадает с другими источниками)"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора не подтверждены первично; до подтверждения — только локальный аудит качества кандидата (чтение, без импорта в справочник и без участия в поиске)"
+        },
+        "genealogical_matching": {
+          "verdict": "ждём подтверждения",
+          "basis": "лицензия набора и рамки согласия не подтверждены; в пользовательский поиск не подключать"
+        },
+        "public_distribution": {
+          "verdict": "ждём подтверждения",
+          "basis": "CC BY статьи не считается подтверждением лицензии на Supporting Information"
+        }
+      },
+      "decision": "ждём подтверждения",
+      "needed": [
+        "условия Supporting Information на странице Wiley",
+        "этика/согласие",
+        "сверка 10 записей QC Q05 и строковых значений с Table S6"
       ]
     },
     {
       "source": "Scientific_NIST1032_UAS24",
       "records": 1032,
+      "citation": "Steffen B, Huszar T, Borsuk L, Vallone P, Gettings KB. A multi-dimensional evaluation of the 'NIST 1032' sample set across four forensic Y-STR multiplexes. Forensic Sci Int Genet. 2022;57:102655.",
       "doi": "10.1016/j.fsigen.2021.102655",
-      "license_claim": "Данные NIST Public Data Repository, лицензия по ссылке https://www.nist.gov/open/license",
-      "license_evidence": [
-        {
-          "url": "https://catalog.data.gov/dataset/u-s-population-data-for-human-identification-markers",
-          "kind": "каталог data.gov (вторичный)",
-          "text": "License: https://www.nist.gov/open/license; DOI 10.18434/t4/1500024"
-        },
-        {
-          "url": "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications",
-          "kind": "NIST (не открыт из сессии, цитата по выдаче поиска)",
-          "text": "работы сотрудников NIST по 17 U.S.C. §105 не охраняются авторским правом в США; могут охраняться за рубежом; NIST просит указывать NIST как источник"
+      "dataset": {
+        "table": "Table S4 (allele call table) — в кандидате взята из supplementary статьи",
+        "raw_file": "NIST1032_TableS4_AlleleCallTable.xlsx",
+        "primary_location": "NIST Public Data Repository, «U.S. population data for human identification markers», doi:10.18434/t4/1500024",
+        "dataset_terms": {
+          "statement": "Для набора doi:10.18434/t4/1500024 каталог указывает лицензию https://www.nist.gov/open/license («Copyright, Fair Use, and Licensing Statements for SRD, Data, Software, and Technical Series Publications»). По этой странице (текст прочитан по выдаче поиска, не напрямую): работы сотрудников NIST по 17 U.S.C. §105 не охраняются авторским правом в США и могут охраняться в других странах; данные предоставляются «AS IS», без гарантий; NIST просит указывать NIST как источник.",
+          "confirmed": false,
+          "evidence": [
+            {
+              "url": "https://catalog.data.gov/dataset/u-s-population-data-for-human-identification-markers",
+              "kind": "каталог data.gov, вторично",
+              "text": "License: https://www.nist.gov/open/license; access level: public; primary data — allele or haplotype frequencies for N=1036 anonymized U.S. population samples"
+            },
+            {
+              "url": "https://www.nist.gov/open/license",
+              "kind": "первичная страница, не открыта из сессии",
+              "text": "—"
+            }
+          ],
+          "to_confirm": "1) текст nist.gov/open/license; 2) содержит ли набор PDR индивидуальные профили (как Table S4) или только частоты; 3) условия supplementary издателя, откуда фактически взяты данные кандидата"
         }
+      },
+      "article_terms": {
+        "statement": "не установлены",
+        "confirmed": false,
+        "evidence": [],
+        "primary_to_confirm": [
+          "https://doi.org/10.1016/j.fsigen.2021.102655",
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC9901497/"
+        ]
+      },
+      "attribution": "Steffen B, et al. 2022, Forensic Sci Int Genet 57:102655; данные: NIST, «U.S. population data for human identification markers», doi:10.18434/t4/1500024",
+      "quality": [
+        "метаданные кандидата: неверная цитата (первым автором указан Gettings KB, том 58)",
+        "все 1032 записи с одной меткой популяции; группы статьи не восстановлены и без первичной таблицы не назначаются",
+        "QC Q03: 14 записей с несколькими значениями однокопийного локуса",
+        "QC Q04: 10 значений вне диапазона — ручная проверка",
+        "каталог NIST говорит о N=1036, кандидат — 1032: расхождение объяснить по первичным файлам"
       ],
-      "primary_to_confirm": [
-        "https://www.nist.gov/open/license",
-        "https://doi.org/10.18434/t4/1500024"
-      ],
-      "condition": "Свободное использование в США как работы федерального правительства с указанием NIST; за рубежом возможна охрана. Брать данные из NIST PDR, а не из supplementary издателя.",
-      "status": "propose_include_conditional",
-      "row_fixes": [
-        "ошибка в citation метаданных: первый автор Steffen B (Gettings KB — последний), FSI:Genetics том 57 (2022), а не 58",
-        "все 1032 записи имеют одну метку 'United States (NIST 1032 sample set)': четыре популяционные группы статьи потеряны — восстановить из NIST PDR"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора не подтверждены первично; до подтверждения — только локальный аудит качества кандидата (чтение, без импорта в справочник и без участия в поиске)"
+        },
+        "genealogical_matching": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора и рамки согласия не подтверждены; данные кандидата взяты из supplementary издателя, а не из NIST PDR"
+        },
+        "public_distribution": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора не прочитаны первично; охрана за пределами США возможна"
+        }
+      },
+      "decision": "ждём подтверждения",
+      "needed": [
+        "nist.gov/open/license и карточка набора в NIST PDR",
+        "есть ли индивидуальные профили в PDR",
+        "первичная разметка популяционных групп",
+        "1032 против 1036"
       ]
     },
     {
       "source": "Scientific_Roewer2008_WesternRussia",
       "records": 545,
+      "citation": "Roewer L, et al. Analysis of Y chromosome STR haplotypes in the European part of Russia reveals high diversities but non-significant genetic distances between populations. Int J Legal Med. 2008;122(3):219-223.",
       "doi": "10.1007/s00414-007-0222-2",
-      "license_claim": "не подтверждена",
-      "license_evidence": [
-        {
-          "url": "https://pubmed.ncbi.nlm.nih.gov/18228030/",
-          "kind": "PubMed",
-          "text": "полный текст доступен в PMC (PMC2755792); лицензия в найденных записях не указана"
+      "dataset": {
+        "table": "Table S1",
+        "raw_file": "Russian545_S1_download.xls",
+        "primary_location": "https://link.springer.com/article/10.1007/s00414-007-0222-2 (Electronic supplementary material)",
+        "dataset_terms": {
+          "statement": "Не установлены.",
+          "confirmed": false,
+          "to_confirm": "условия ESM на странице Springer; лицензия копии в PMC"
         }
+      },
+      "article_terms": {
+        "statement": "не установлены; наличие в PMC (PMC2755792) не является разрешением",
+        "confirmed": false,
+        "evidence": [
+          {
+            "url": "https://pubmed.ncbi.nlm.nih.gov/18228030/",
+            "kind": "PubMed",
+            "text": "полный текст в PMC; лицензия не указана"
+          }
+        ],
+        "primary_to_confirm": [
+          "https://link.springer.com/article/10.1007/s00414-007-0222-2",
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC2755792/"
+        ]
+      },
+      "attribution": "Roewer L, et al. 2008, Int J Legal Med 122(3):219-223, doi:10.1007/s00414-007-0222-2; Table S1",
+      "quality": [
+        "QC Q01: 2 записи с аллелем 0",
+        "состав (17 локусов, 12 популяций, 545 человек) совпадает с описанием статьи"
       ],
-      "primary_to_confirm": [
-        "https://link.springer.com/article/10.1007/s00414-007-0222-2",
-        "https://pmc.ncbi.nlm.nih.gov/articles/PMC2755792/"
-      ],
-      "condition": "Свободный доступ к статье в PMC не является разрешением на перепубликацию таблицы S1. Нужна строка лицензии на странице Springer/PMC.",
-      "status": "exclude_pending_terms",
-      "row_fixes": [
-        "2 профиля с аллелем 0 — считать локус отсутствующим"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия набора не подтверждены первично; до подтверждения — только локальный аудит качества кандидата (чтение, без импорта в справочник и без участия в поиске)"
+        },
+        "genealogical_matching": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия не установлены"
+        },
+        "public_distribution": {
+          "verdict": "ждём подтверждения",
+          "basis": "условия не установлены"
+        }
+      },
+      "decision": "ждём подтверждения",
+      "needed": [
+        "условия ESM у Springer",
+        "этика/согласие"
       ]
     },
     {
       "source": "Scientific_Balanovsky2011_Caucasus",
       "records": 1515,
+      "citation": "Balanovsky O, et al. Parallel Evolution of Genes and Languages in the Caucasus Region. Mol Biol Evol. 2011;28(10):2905-2920.",
       "doi": "10.1093/molbev/msr126",
-      "license_claim": "открытая лицензия не найдена",
-      "license_evidence": [
-        {
-          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3355373/",
-          "kind": "PMC (из выдачи поиска)",
-          "text": "авторская рукопись (author manuscript) в PMC; лицензия на данные не указана"
-        },
-        {
-          "url": "https://drmc.library.adelaide.edu.au/dspace/handle/2440/65790",
-          "kind": "репозиторий",
-          "text": "items are protected by copyright, with all rights reserved, unless otherwise indicated"
+      "dataset": {
+        "table": "Supplementary Table S1",
+        "raw_file": "Balanovsky_ParallelEvolution_Supplementary_Tables.xls",
+        "primary_location": "https://doi.org/10.1093/molbev/msr126 (Supplementary Material)",
+        "dataset_terms": {
+          "statement": "Открытой лицензии не найдено. Метаданные кандидата: «All rights reserved (source article)… redistribution requires rights-holder permission».",
+          "confirmed": false,
+          "to_confirm": "условия Supplementary Material у OUP; письменное разрешение правообладателя"
         }
+      },
+      "article_terms": {
+        "statement": "открытой лицензии не найдено",
+        "confirmed": false,
+        "evidence": [
+          {
+            "url": "https://drmc.library.adelaide.edu.au/dspace/handle/2440/65790",
+            "kind": "репозиторий",
+            "text": "protected by copyright, with all rights reserved, unless otherwise indicated"
+          },
+          {
+            "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC3355373/",
+            "kind": "PMC, из выдачи поиска",
+            "text": "author manuscript; лицензия не указана"
+          }
+        ],
+        "primary_to_confirm": [
+          "https://doi.org/10.1093/molbev/msr126"
+        ]
+      },
+      "attribution": "Balanovsky O, et al. 2011, Mol Biol Evol 28(10):2905-2920, doi:10.1093/molbev/msr126; Table S1",
+      "quality": [
+        "QC Q06: 28 записей с менее чем 12 локусами",
+        "QC Q04: 1 значение вне диапазона (DYS635)",
+        "10 строк без STR исключены при подготовке кандидата (по метаданным)"
       ],
-      "primary_to_confirm": [
-        "https://doi.org/10.1093/molbev/msr126"
-      ],
-      "condition": "Метаданные самого кандидата: «All rights reserved; redistribution requires rights-holder permission». Нужно письменное разрешение авторов/OUP.",
-      "status": "exclude_pending_permission",
-      "row_fixes": [
-        "28 профилей содержат меньше 12 маркеров (24 — по 2 маркера) — малоинформативны для сопоставления",
-        "1 профиль: DYS635 = 12 при медиане 23 — проверить по исходной таблице"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "метаданные кандидата допускают «local research only», первичного подтверждения нет; только локальный аудит качества"
+        },
+        "genealogical_matching": {
+          "verdict": "недопустимо",
+          "basis": "без разрешения правообладателя"
+        },
+        "public_distribution": {
+          "verdict": "недопустимо",
+          "basis": "без разрешения правообладателя"
+        }
+      },
+      "decision": "исключён",
+      "needed": [
+        "письменное разрешение авторов/OUP на сопоставление и распространение"
       ]
     },
     {
       "source": "Scientific_Underhill2010_R1a_YSTR37",
       "records": 290,
+      "citation": "Underhill PA, et al. Separating the post-Glacial coancestry of European and Asian Y chromosomes within haplogroup R1a. Eur J Hum Genet. 2010;18:479-484.",
       "doi": "10.1038/ejhg.2009.194",
-      "license_claim": "открытая лицензия не найдена",
-      "license_evidence": [
-        {
-          "url": "https://repository.ias.ac.in/51846",
-          "kind": "репозиторий",
-          "text": "Copyright of this article belongs to Nature Publishing Group"
+      "dataset": {
+        "table": "Supplementary Table S7",
+        "raw_file": "Tables S1-S7 for EJHG.xls",
+        "primary_location": "https://doi.org/10.1038/ejhg.2009.194 (Supplementary information)",
+        "dataset_terms": {
+          "statement": "Открытой лицензии не найдено. Метаданные кандидата: «All rights reserved… redistribution requires rights-holder permission».",
+          "confirmed": false,
+          "to_confirm": "условия Supplementary information у Nature/Springer Nature; разрешение правообладателя"
         }
+      },
+      "article_terms": {
+        "statement": "© Nature Publishing Group",
+        "confirmed": false,
+        "evidence": [
+          {
+            "url": "https://repository.ias.ac.in/51846",
+            "kind": "репозиторий",
+            "text": "Copyright of this article belongs to Nature Publishing Group"
+          }
+        ],
+        "primary_to_confirm": [
+          "https://doi.org/10.1038/ejhg.2009.194"
+        ]
+      },
+      "attribution": "Underhill PA, et al. 2010, Eur J Hum Genet 18:479-484, doi:10.1038/ejhg.2009.194; Table S7",
+      "quality": [
+        "QC Q08: Y-GATA-H4 в другой шкале (медиана 21 против 12)",
+        "QC Q09: DYS389II вычислен как DYS389I + DYS389B (277 из 277)",
+        "QC Q04: 252 выброса — почти все следствие Q08",
+        "QC Q06: 1 запись с менее чем 12 локусами",
+        "идентификаторы образцов в таблице отсутствуют, ключи сгенерированы при подготовке кандидата"
       ],
-      "primary_to_confirm": [
-        "https://doi.org/10.1038/ejhg.2009.194"
-      ],
-      "condition": "Метаданные кандидата: «All rights reserved; redistribution requires rights-holder permission». Нужно разрешение правообладателя.",
-      "status": "exclude_pending_permission",
-      "row_fixes": [
-        "Y-GATA-H4 = 19–23 (медиана 21) при 11–12 в остальных источниках — другая номенклатура; без пересчёта сравнивать нельзя",
-        "DYS389II не опубликован, а вычислен как DYS389I + DYS389B (277 из 277) — помечать как производное значение",
-        "DYS389B (= DYS389II−I) в GD не учитывать"
+      "consent_scope": "Совместимость генеалогического сопоставления с целью исходного согласия доноров (популяционное/судебно-медицинское исследование) не проверена; нужна формулировка из раздела этики первичной статьи.",
+      "scenarios": {
+        "local_closed_prototype": {
+          "verdict": "ждём подтверждения",
+          "basis": "метаданные кандидата допускают «local research only», первичного подтверждения нет; только локальный аудит качества"
+        },
+        "genealogical_matching": {
+          "verdict": "недопустимо",
+          "basis": "без разрешения правообладателя; кроме того, несовместимая шкала Y-GATA-H4"
+        },
+        "public_distribution": {
+          "verdict": "недопустимо",
+          "basis": "без разрешения правообладателя"
+        }
+      },
+      "decision": "исключён",
+      "needed": [
+        "разрешение правообладателя",
+        "правило пересчёта шкалы Y-GATA-H4 с первичным основанием"
       ]
     }
   ],
-  "proposal": {
-    "include_conditional_records": 32934,
-    "exclude_records": 2350,
-    "include_conditional_sources": [
-      "Scientific_Purps2014_PPY23",
-      "Scientific_Ballantyne2014_RM_YSTR",
-      "Scientific_NIST1032_UAS24"
-    ],
-    "excluded_sources": [
-      "Scientific_Roewer2008_WesternRussia",
-      "Scientific_Balanovsky2011_Caucasus",
-      "Scientific_Underhill2010_R1a_YSTR37"
-    ]
+  "summary": {
+    "допущен": 0,
+    "ждём подтверждения": 33479,
+    "исключён": 1805
   }
 }
