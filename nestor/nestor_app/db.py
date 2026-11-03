@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -70,8 +70,10 @@ CREATE TABLE IF NOT EXISTS profile_markers (
     PRIMARY KEY (profile_id, marker)
 );
 
--- Исходные файлы импорта владельца (хранятся целиком; удаляются вместе с аккаунтом,
--- при отмене импорта и когда удалён последний профиль из файла).
+-- Исходные файлы импорта владельца. Хранятся только временно — между загрузкой и
+-- решением (сохранение / отмена). После сохранения файл удаляется, если владелец
+-- отдельно не согласился хранить полный оригинал (keep_original = 1); такой файл
+-- удаляется вместе с последним профилем из него и вместе с аккаунтом.
 CREATE TABLE IF NOT EXISTS import_files (
     id             INTEGER PRIMARY KEY,
     owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -81,6 +83,8 @@ CREATE TABLE IF NOT EXISTS import_files (
     content        BLOB NOT NULL,
     panel_choice   TEXT NOT NULL,
     status         TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged','committed')),
+    keep_original  INTEGER NOT NULL DEFAULT 0 CHECK (keep_original IN (0,1)),
+    keep_original_at TEXT,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
@@ -137,6 +141,12 @@ def init_schema(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(profile_markers)")}
     if "status" not in cols:  # миграция v1 → v2: позиции без значения / нераспознанные
         conn.execute("ALTER TABLE profile_markers ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'")
+    icols = {r[1] for r in conn.execute("PRAGMA table_info(import_files)")}
+    if icols and "keep_original" not in icols:  # миграция v4 → v5: согласие на хранение оригинала
+        conn.execute("ALTER TABLE import_files ADD COLUMN keep_original INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE import_files ADD COLUMN keep_original_at TEXT")
+        # файлы, сохранённые до v5 без отдельного согласия, удаляются
+        conn.execute("DELETE FROM import_files WHERE status = 'committed'")
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(profiles)")}
     if pcols and "panel_code" not in pcols:  # миграция v2 → v3: панель профиля
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_code TEXT")
@@ -146,6 +156,18 @@ def init_schema(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
         (str(SCHEMA_VERSION),),
     )
+
+
+def purge_freed_pages(conn: sqlite3.Connection) -> None:
+    """После удаления чувствительных данных: перенести WAL в основной файл и усечь его.
+
+    При PRAGMA secure_delete = ON освобождённые страницы основного файла затираются;
+    checkpoint(TRUNCATE) убирает прежние версии страниц из файла WAL.
+    """
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.OperationalError:
+        pass  # :memory: или занятая база — содержимое уже удалено логически
 
 
 class Tx:

@@ -156,3 +156,22 @@ class TestMigration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMigrationV5(unittest.TestCase):
+    def test_committed_files_without_consent_are_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "v4.db"
+            c = sqlite3.connect(path)
+            c.executescript("""CREATE TABLE import_files(id INTEGER PRIMARY KEY, owner_user_id INTEGER, filename TEXT,
+                               sha256 TEXT, size_bytes INTEGER, content BLOB, panel_choice TEXT,
+                               status TEXT NOT NULL DEFAULT 'staged', created_at TEXT);
+                               INSERT INTO import_files(owner_user_id, filename, sha256, size_bytes, content, panel_choice, status)
+                               VALUES (1,'old.csv','x',3,X'414243','AUTO','committed'),
+                                      (1,'pending.csv','y',3,X'444546','AUTO','staged');""")
+            c.commit()
+            c.close()
+            conn = db.connect(path)
+            rows = [tuple(r) for r in conn.execute("SELECT filename, status, keep_original FROM import_files")]
+            self.assertEqual(rows, [("pending.csv", "staged", 0)])
+            conn.close()

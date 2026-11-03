@@ -265,7 +265,8 @@ class _Handler(BaseHTTPRequestHandler):
                 sheet, _, num = v.rpartition("|")
                 rows.append((sheet, int(num)))
             ui.commit(self.nestor.conn, uid, upload_id, rows, consent_basis=form.get("consent_basis", ""),
-                      consent_confirmed=form.get("consent_confirmed") == "1")
+                      consent_confirmed=form.get("consent_confirmed") == "1",
+                      keep_original=form.get("keep_original") == "1")
             return self._redirect("/me")
         m = re.fullmatch(r"/profiles/(\d+)/(searchable|visibility|delete)", path)
         if m:
@@ -456,8 +457,10 @@ Y700 не поддерживается.</p></div>"""
 <input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx" required></p>
 <p>Панель {self._panel_select()}<br><span class="muted">Выбранная панель: локусы файла вне неё — ошибка листа.
 «Определить автоматически» — по заголовкам, только при надёжном совпадении; иначе — пользовательский набор.</span></p>
-<p class="muted">Файл сохраняется локально целиком (с SHA-256) и сначала показывается для проверки.
-Профили создаются только после подтверждения, закрытыми; записи не объединяются.
+<p class="muted">Файл временно хранится локально только для проверки. После подтверждения сохраняются
+выбранные строки (исходные ячейки), имя файла, лист, номера строк и SHA-256; полный файл удаляется,
+если вы отдельно не попросите его сохранить. При отмене файл удаляется.
+Профили создаются закрытыми; записи не объединяются.
 Не более {im.MAX_FILE_BYTES // (1024 * 1024)} МБ и {im.MAX_ROWS} строк.</p>
 <button>Загрузить и проверить</button></form></div>""", sess)
 
@@ -500,7 +503,13 @@ Y700 не поддерживается.</p></div>"""
 <th>Пометки</th><th>Ошибка</th><th>Исходные ячейки</th></tr>{''.join(rows)}</table>
 <p><b>Чьи это тесты?</b><br>{basis}<label><input type="checkbox" name="consent_confirmed" value="1" required>
 Подтверждаю право загрузить выбранные профили.</label></p>
-<p class="muted">Профили будут созданы закрытыми; ID из файла сохранится как kit ID (виден только вам).</p>
+<p class="muted">Профили будут созданы закрытыми; ID из файла сохранится как kit ID (виден только вам).
+После сохранения остаются только исходные ячейки выбранных строк, имя файла, лист, номера строк и SHA-256
+файла; сам файл удаляется.</p>
+<p><label><input type="checkbox" name="keep_original" value="1"> Дополнительно сохранить полный исходный файл
+для локального аудита (необязательно).</label><br><span class="warn">Внимание: вместе с файлом сохранятся
+<b>все</b> его строки и листы, включая профили, которые вы не выбрали. Файл будет удалён вместе с последним
+сохранённым из него профилем.</span></p>
 <button>Сохранить выбранные</button></form>
 <form method="post" action="/import/{upload_id}/discard"><input type="hidden" name="csrf" value="{esc(csrf)}">
 <button>Отменить и удалить файл</button></form></div>"""
@@ -583,7 +592,8 @@ Y700 не поддерживается.</p></div>"""
         cells = "".join(f"<tr><td>{esc(k)}</td><td><code>{esc(v)}</code></td></tr>" for k, v in raw.items())
         return (f'<div class="card"><h3>Происхождение</h3><p>Файл {esc(src["filename"])}, SHA-256 '
                 f'<code>{esc(src["file_sha256"])}</code>, лист {esc(src["sheet"])}, строка {src["row_number"]}'
-                f'{", ID " + esc(src["record_id"]) if src["record_id"] else ""}.</p>'
+                f'{", ID " + esc(src["record_id"]) if src["record_id"] else ""}. '
+                f'{"Полный исходный файл сохранён по вашему согласию." if src["import_file_id"] else "Полный файл не хранится — только ячейки этой строки."}</p>'
                 f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details></div>')
 
     def _owner_matches(self, sess, pid):

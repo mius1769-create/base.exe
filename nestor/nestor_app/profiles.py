@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from . import markers as mk
 from . import panels as pn
-from .db import Tx
+from .db import Tx, purge_freed_pages
 
 CONSENT_TEXT_VERSION = "2026-11-mvp1"
 CONSENT_BASES = ("own_test", "authorized_other")
@@ -228,8 +228,9 @@ def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int
         if src and src["import_file_id"] is not None:
             left = conn.execute("SELECT COUNT(*) FROM profile_sources WHERE import_file_id = ?",
                                 (src["import_file_id"],)).fetchone()[0]
-            if left == 0:  # исходный файл больше не нужен ни одному профилю — удаляется
+            if left == 0:  # сохранённый по согласию оригинал больше не нужен ни одному профилю
                 conn.execute("DELETE FROM import_files WHERE id = ?", (src["import_file_id"],))
+    purge_freed_pages(conn)
 
 
 def iter_searchable(conn: sqlite3.Connection, exclude_owner: int | None = None):

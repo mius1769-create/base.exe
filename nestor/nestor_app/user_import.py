@@ -1,9 +1,17 @@
 """Импорт профилей владельца из CSV / XLSX: загрузка → просмотр → сохранение выбранных строк.
 
-Файл хранится целиком (import_files) до сохранения или отмены. Сохранённый
-профиль создаётся закрытым (как при ручном вводе) и получает происхождение:
-файл, SHA-256, лист, номер строки и исходные ячейки дословно (profile_sources).
-Повторы и совпадения только помечаются; записи не объединяются.
+Хранение файла (решение заказчика):
+  * загруженный файл хранится ВРЕМЕННО (import_files, status = staged) — только
+    чтобы показать просмотр и сохранить выбранные строки;
+  * после сохранения по умолчанию остаются только исходные ячейки выбранных строк,
+    имя файла, лист, номер строки и SHA-256 всего файла (profile_sources); сам
+    файл удаляется — в нём могут быть профили, которые пользователь не выбрал;
+  * полный оригинал сохраняется только при отдельном согласии keep_original
+    (предупреждение: сохранятся и невыбранные строки и листы); такой файл
+    удаляется вместе с последним профилем из него;
+  * отмена удаляет временный файл; новая загрузка удаляет прежние незавершённые
+    загрузки владельца, незавершённые загрузки старше суток удаляются.
+Сохранённый профиль создаётся закрытым. Повторы только помечаются; записи не объединяются.
 """
 
 from __future__ import annotations
@@ -12,6 +20,9 @@ import sqlite3
 
 from . import importer as im
 from . import profiles as pr
+from .db import purge_freed_pages
+
+STAGED_TTL = "-1 day"
 
 
 class UploadError(ValueError):
@@ -30,6 +41,10 @@ def stage(conn: sqlite3.Connection, owner_user_id: int, filename: str, data: byt
           panel_choice: str = "AUTO") -> tuple[int, im.Preview]:
     """Проверить файл и сохранить его как «загружен, ждёт подтверждения»."""
     preview = im.build_preview(filename, data, panel_choice, existing=_existing(conn, owner_user_id))
+    # одна незавершённая загрузка на владельца; брошенные загрузки старше суток — удаляются
+    conn.execute("DELETE FROM import_files WHERE status = 'staged' AND "
+                 "(owner_user_id = ? OR created_at < strftime('%Y-%m-%dT%H:%M:%SZ','now', ?))",
+                 (owner_user_id, STAGED_TTL))
     cur = conn.execute(
         "INSERT INTO import_files(owner_user_id, filename, sha256, size_bytes, content, panel_choice) VALUES (?,?,?,?,?,?)",
         (owner_user_id, preview.filename, preview.sha256, preview.size, data, panel_choice),
@@ -56,11 +71,18 @@ def discard(conn, owner_user_id: int, upload_id: int) -> None:
     if row["status"] != "staged":
         raise UploadError("файл уже сохранён: удалите профили из него, чтобы удалить файл")
     conn.execute("DELETE FROM import_files WHERE id = ?", (upload_id,))
+    purge_freed_pages(conn)
 
 
 def commit(conn, owner_user_id: int, upload_id: int, selected: list[tuple[str, int]], *,
-           consent_basis: str, consent_confirmed: bool) -> list[int]:
-    """Сохранить выбранные строки (лист, номер строки) как закрытые профили."""
+           consent_basis: str, consent_confirmed: bool, keep_original: bool = False) -> list[int]:
+    """Сохранить выбранные строки (лист, номер строки) как закрытые профили.
+
+    keep_original=False (по умолчанию): после сохранения полный файл удаляется,
+    остаются только ячейки выбранных строк и SHA-256 файла.
+    keep_original=True — отдельное согласие хранить полный оригинал, включая
+    невыбранные строки и листы.
+    """
     row = _staged(conn, owner_user_id, upload_id)
     if row["status"] != "staged":
         raise UploadError("этот файл уже сохранён")
@@ -90,5 +112,10 @@ def commit(conn, owner_user_id: int, upload_id: int, selected: list[tuple[str, i
                     "sheet": rec.sheet, "row_number": rec.row_number, "record_id": rec.record_id or None,
                     "raw_json": im.raw_json(rec)})
         ids.append(pid)
-    conn.execute("UPDATE import_files SET status = 'committed' WHERE id = ?", (upload_id,))
+    if keep_original:
+        conn.execute("UPDATE import_files SET status = 'committed', keep_original = 1, "
+                     "keep_original_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?", (upload_id,))
+    else:
+        conn.execute("DELETE FROM import_files WHERE id = ?", (upload_id,))  # profile_sources.import_file_id → NULL
+        purge_freed_pages(conn)
     return ids

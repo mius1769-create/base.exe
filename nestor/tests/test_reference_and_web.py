@@ -209,6 +209,9 @@ class TestWebImport(TestWebSmoke):
         _, prof = self.get(owner, f"/profiles/{pid}")
         self.assertIn("Происхождение", prof)
         self.assertIn("строка 2", prof)
+        self.assertIn("Полный файл не хранится", prof)
+        self.assertIn('name="keep_original"', page)
+        self.assertNotIn('name="keep_original" value="1" checked', page)   # по умолчанию выключено
         self.assertIn("закрыт", prof)
 
 

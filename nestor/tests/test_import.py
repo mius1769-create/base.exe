@@ -149,23 +149,112 @@ class TestUserImport(unittest.TestCase):
         ui.commit(self.conn, self.uid, u2, [("CSV", 2)], consent_basis="own_test", consent_confirmed=True)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 2)  # не объединены
 
-    def test_discard_and_delete_remove_file(self):
+    def test_default_commit_deletes_full_file(self):
+        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        [pid] = ui.commit(self.conn, self.uid, u1, [("CSV", 2)], consent_basis="own_test", consent_confirmed=True)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
+        src = pr.load_source(self.conn, pid)
+        self.assertIsNone(src["import_file_id"])
+        self.assertEqual((src["filename"], src["sheet"], src["row_number"]), ("kits.csv", "CSV", 2))
+        self.assertEqual(src["file_sha256"], im.build_preview("kits.csv", self.csv).sha256)  # SHA-256 всего файла
+
+    def test_discard_and_keep_original_lifecycle(self):
         u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
         ui.discard(self.conn, self.uid, u1)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
         u2, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
-        a, b = ui.commit(self.conn, self.uid, u2, [("CSV", 2), ("CSV", 3)], consent_basis="own_test", consent_confirmed=True)
+        a, b = ui.commit(self.conn, self.uid, u2, [("CSV", 2), ("CSV", 3)], consent_basis="own_test",
+                         consent_confirmed=True, keep_original=True)
+        f = self.conn.execute("SELECT keep_original, keep_original_at, content FROM import_files").fetchone()
+        self.assertEqual((f["keep_original"], bytes(f["content"])), (1, self.csv))
+        self.assertIsNotNone(f["keep_original_at"])
         pr.delete_profile(self.conn, self.uid, a)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 1)  # нужен профилю b
-        pr.delete_profile(self.conn, self.uid, b)
+        pr.delete_profile(self.conn, self.uid, b)                          # последняя выбранная запись
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profile_sources").fetchone()[0], 0)
+
+    def test_new_upload_replaces_unfinished_one(self):
+        u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        u2, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
+        ids = [r[0] for r in self.conn.execute("SELECT id FROM import_files")]
+        self.assertEqual(ids, [u2])
 
     def test_other_user_cannot_see_upload(self):
         u1, _ = ui.stage(self.conn, self.uid, "kits.csv", self.csv)
         stranger = new_user(self.conn, 2)
         with self.assertRaises(ui.UploadError):
             ui.preview_of(self.conn, stranger, u1)
+
+
+class TestUnselectedProfileNotStored(unittest.TestCase):
+    """Книга с двумя персональными профилями; пользователь сохраняет один."""
+
+    SECRET_B = "PERSON-B-ZX9Q"
+    NOTE_B = "Петров-Пётр-отец-1931"
+
+    def setUp(self):
+        from nestor_app import db
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "users.db"
+        self.conn = db.connect(self.path)
+        self.addCleanup(self.conn.close)
+        self.uid = new_user(self.conn, 1)
+        self.book = write_workbook(Path(self.tmp.name) / "family.xlsx", {
+            "Семья": [["Sample", "Заметка"] + Y12,
+                      ["PERSON-A-7Q1", "мой тест"] + y12_row(),
+                      [self.SECRET_B, self.NOTE_B] + y12_row(DYS19="16", DYS390="23")]})
+
+    def db_bytes(self) -> bytes:
+        out = b""
+        for suffix in ("", "-wal", "-shm"):
+            f = Path(str(self.path) + suffix)
+            if f.exists():
+                out += f.read_bytes()
+        return out
+
+    def assert_b_absent(self):
+        blob = self.db_bytes()
+        for text in (self.SECRET_B, self.NOTE_B):
+            self.assertNotIn(text.encode("utf-8"), blob, text)
+        self.assertNotIn(self.book, blob)
+
+    def test_only_selected_row_kept(self):
+        upload, prev = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
+        self.assertEqual(len(prev.records), 2)
+        self.assertIn(self.SECRET_B.encode(), self.db_bytes())             # временно — пока ждёт решения
+        [pid] = ui.commit(self.conn, self.uid, upload, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM import_files").fetchone()[0], 0)
+        src = pr.load_source(self.conn, pid)
+        self.assertEqual(json.loads(src["raw_json"])["Sample"], "PERSON-A-7Q1")
+        self.assertEqual(src["file_sha256"], prev.sha256)
+        self.assert_b_absent()
+
+    def test_cancel_removes_temporary_file(self):
+        upload, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
+        ui.discard(self.conn, self.uid, upload)
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0], 0)
+        self.assert_b_absent()
+
+    def test_reimport_after_commit_and_delete_last(self):
+        u1, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
+        [pid] = ui.commit(self.conn, self.uid, u1, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True)
+        u2, prev = ui.stage(self.conn, self.uid, "family.xlsx", self.book)   # повторный импорт того же файла
+        a, b = prev.records
+        self.assertTrue(any("ID «PERSON-A-7Q1» уже есть" in f for f in a.flags))
+        self.assertFalse(any("уже есть" in f for f in b.flags))
+        ui.discard(self.conn, self.uid, u2)
+        self.assert_b_absent()
+        pr.delete_profile(self.conn, self.uid, pid)                          # последняя выбранная запись
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM profile_sources").fetchone()[0], 0)
+        self.assertNotIn(b"PERSON-A-7Q1", self.db_bytes())
+
+    def test_keep_original_requires_explicit_consent(self):
+        u1, _ = ui.stage(self.conn, self.uid, "family.xlsx", self.book)
+        ui.commit(self.conn, self.uid, u1, [("Семья", 2)], consent_basis="own_test", consent_confirmed=True,
+                  keep_original=True)
+        self.assertIn(self.SECRET_B.encode(), self.db_bytes())             # по согласию — полный файл со строкой B
 
 
 class TestCandidates(unittest.TestCase):
