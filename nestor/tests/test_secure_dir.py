@@ -4,8 +4,8 @@
 * TestPosix — права 0700 (только Linux/macOS).
 * TestWindows — реальные ACL через icacls и Win32 API (только Windows).
 * TestWindowsOtherUser — доступ другого обычного пользователя (только Windows и только
-  если заданы NESTOR_PROBE_USER / NESTOR_PROBE_PASSWORD — учётная запись без прав
-  администратора, которую создаёт CI; иначе тест пропускается).
+  если заданы NESTOR_PROBE_USER и NESTOR_PROBE_PASSWORD_FILE — учётная запись без прав
+  администратора, которую создаёт и затем удаляет CI в одноразовом runner; иначе пропуск).
 """
 
 import os
@@ -124,8 +124,16 @@ class TestWindows(unittest.TestCase):
         self.assertEqual(Path(os.environ["LOCALAPPDATA"]) / "NeSToR" / "staging", d)
 
 
-@unittest.skipUnless(os.name == "nt" and os.environ.get("NESTOR_PROBE_USER") and os.environ.get("NESTOR_PROBE_PASSWORD"),
-                     "только Windows с учётной записью для проверки (NESTOR_PROBE_USER)")
+def _probe_password():
+    """Пароль учётной записи для проверки — из файла (CI), не из переменной окружения."""
+    path = os.environ.get("NESTOR_PROBE_PASSWORD_FILE")
+    if path and Path(path).is_file():
+        return Path(path).read_text(encoding="utf-8").strip()
+    return None
+
+
+@unittest.skipUnless(os.name == "nt" and os.environ.get("NESTOR_PROBE_USER") and _probe_password(),
+                     "только Windows с учётной записью для проверки (NESTOR_PROBE_USER, NESTOR_PROBE_PASSWORD_FILE)")
 class TestWindowsOtherUser(unittest.TestCase):
     """Другой обычный пользователь не может прочитать файл в каталоге загрузок."""
 
@@ -136,7 +144,7 @@ class TestWindowsOtherUser(unittest.TestCase):
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         token = wintypes.HANDLE()
         LOGON32_LOGON_NETWORK, LOGON32_PROVIDER_DEFAULT = 3, 0
-        if not advapi32.LogonUserW(os.environ["NESTOR_PROBE_USER"], ".", os.environ["NESTOR_PROBE_PASSWORD"],
+        if not advapi32.LogonUserW(os.environ["NESTOR_PROBE_USER"], ".", _probe_password(),
                                    LOGON32_LOGON_NETWORK, LOGON32_PROVIDER_DEFAULT, ctypes.byref(token)):
             raise ctypes.WinError(ctypes.get_last_error())
         try:

@@ -85,6 +85,7 @@ class TestStagingLifecycle(Base):
                             manifest_file=self.var / "M.json", port=0, staging_dir=self.stg)
         app = NestorApp(settings)                                     # очистка при запуске
         self.addCleanup(app.conn.close)
+        self.addCleanup(app.stop_maintenance_timer)                    # остановить до закрытия базы
         self.assertEqual(list(self.stg.iterdir()), [])
         self.assertEqual((app.last_maintenance["expired"], app.last_maintenance["orphaned"]), (1, 1))
         staging.put(self.stg, self.uid, "x.csv", b"x", "AUTO")
@@ -93,11 +94,13 @@ class TestStagingLifecycle(Base):
             d["created_at"] -= staging.TTL_SECONDS + 1
             meta.write_text(json.dumps(d), encoding="utf-8")
         app.start_maintenance_timer(interval=0.05)                    # периодическая очистка
-        self.addCleanup(app.stop_maintenance_timer)
         deadline = time.time() + 5
         while any(self.stg.iterdir()) and time.time() < deadline:
             time.sleep(0.05)
         self.assertEqual(list(self.stg.iterdir()), [])
+        app.stop_maintenance_timer()
+        self.assertIsNone(app._timer)                                  # поток остановлен, новых запусков нет
+        self.assertNotIn("error", app.last_maintenance)
 
 
 class TestBackupRetentionInApp(Base):

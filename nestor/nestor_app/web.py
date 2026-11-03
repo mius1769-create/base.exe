@@ -65,7 +65,8 @@ class NestorApp:
         self.staging_dir = settings.staging_dir or default_staging_dir(settings.var_dir)
         self.staging_check = staging.ensure_private(self.staging_dir)   # проверка при запуске
         self.last_maintenance: dict = {}
-        self._timer: threading.Timer | None = None
+        self._timer: threading.Thread | None = None
+        self._stop_event = threading.Event()
         self.maintenance()  # при запуске: очистка временных загрузок после сбоя / по сроку
 
     def maintenance(self) -> dict:
@@ -78,18 +79,24 @@ class NestorApp:
         return self.last_maintenance
 
     def start_maintenance_timer(self, interval: float = staging.SWEEP_INTERVAL_SECONDS) -> None:
-        def tick():
-            try:
-                self.maintenance()
-            finally:
-                self.start_maintenance_timer(interval)
-        self._timer = threading.Timer(interval, tick)
-        self._timer.daemon = True
+        """Фоновая очистка в одном потоке до stop_maintenance_timer() (без цепочки таймеров)."""
+        self._stop_event = threading.Event()
+
+        def loop():
+            while not self._stop_event.wait(interval):
+                try:
+                    self.maintenance()
+                except Exception as e:  # noqa: BLE001 — сбой очистки не должен останавливать поток
+                    self.last_maintenance = {"error": type(e).__name__}
+
+        self._timer = threading.Thread(target=loop, name="nestor-maintenance", daemon=True)
         self._timer.start()
 
     def stop_maintenance_timer(self) -> None:
-        if self._timer:
-            self._timer.cancel()
+        if self._timer is not None:
+            self._stop_event.set()
+            self._timer.join(timeout=5)
+            self._timer = None
 
     def make_server(self) -> ThreadingHTTPServer:
         app = self

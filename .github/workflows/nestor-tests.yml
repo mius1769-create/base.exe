@@ -27,8 +27,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # Обычная (не администратор) локальная учётная запись для проверки,
-      # что каталог временных загрузок недоступен другим пользователям.
+      # Обычная (не администратор) локальная учётная запись — только в одноразовом runner —
+      # для проверки, что каталог временных загрузок недоступен другим пользователям.
+      # Пароль: маскируется в логе и передаётся файлом в RUNNER_TEMP, не переменной окружения.
       - name: Create unprivileged probe user
         if: runner.os == 'Windows'
         shell: powershell
@@ -40,8 +41,10 @@ jobs:
           Add-LocalGroupMember -SID "S-1-5-32-545" -Member "nestor_probe"
           $admins = Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.Name -like "*\nestor_probe" }
           if ($admins) { throw "probe user must not be an administrator" }
+          $pwFile = Join-Path $env:RUNNER_TEMP "nestor_probe.pw"
+          [System.IO.File]::WriteAllText($pwFile, $pw)
           "NESTOR_PROBE_USER=nestor_probe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "NESTOR_PROBE_PASSWORD=$pw" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "NESTOR_PROBE_PASSWORD_FILE=$pwFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Unit tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
@@ -49,3 +52,14 @@ jobs:
       - name: Staging directory check at launch
         shell: bash
         run: python run_nestor.py --check-staging --var-dir "$RUNNER_TEMP/nestor-var"
+
+      # Удаление учётной записи и файла с паролем — при успехе и при ошибке.
+      - name: Remove probe user
+        if: always() && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Remove-LocalUser -Name "nestor_probe" -ErrorAction SilentlyContinue
+          if ($env:NESTOR_PROBE_PASSWORD_FILE) { Remove-Item -Force -ErrorAction SilentlyContinue $env:NESTOR_PROBE_PASSWORD_FILE }
+          if (Get-LocalUser -Name "nestor_probe" -ErrorAction SilentlyContinue) { throw "probe user still exists" }
+          if ($env:NESTOR_PROBE_PASSWORD_FILE -and (Test-Path $env:NESTOR_PROBE_PASSWORD_FILE)) { throw "password file still exists" }
+          Write-Output "probe user and password file removed"
