@@ -49,10 +49,14 @@ class TestPanels(unittest.TestCase):
         # Y12 — префикс Y25, Y25 — префикс Y37 (порядок сохраняется)
         y25 = panels.get_panel("FTDNA_Y25")
         self.assertEqual(y37.marker_names[: len(y25.marker_names)], y25.marker_names)
-        self.assertTrue(all(p.status == "provisional" for p in panels.PANELS.values()))
+        # FTDNA Y12/Y25/Y37 совпали с config/panels.json архива
+        self.assertTrue(all(panels.PANELS[c].status == "archive_verified" for c in ("FTDNA_Y12", "FTDNA_Y25", "FTDNA_Y37")))
+        self.assertEqual(len(panels.get_panel("GENOPOISK_Y37").marker_names), 33)
+        self.assertEqual(len(panels.get_panel("Genopoisk Y50").marker_names), 48)
+        self.assertEqual(len(panels.get_panel("FTDNA_Y111").marker_names), 102)
 
     def test_y700_and_unverified_panels_unsupported(self):
-        for code in ("Y700", "FTDNA_Y700", "FTDNA_Y111", "GENOPOISK_Y50", "STRELKA"):
+        for code in ("Y700", "FTDNA_Y700", "STRELKA", "STRELKA_Y111"):
             with self.assertRaises(panels.UnsupportedPanel):
                 panels.get_panel(code)
         with self.assertRaises(panels.UnsupportedPanel):

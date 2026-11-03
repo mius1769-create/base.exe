@@ -140,6 +140,14 @@ NeSToR не проверял, и ни один из них не включает
 | `veselovskaya_mustafin_tolyon2024` | 1 | 10.31857/S0016675824060096 | permission_review_required | **не проверено** |
 | `semenov_klyazma2023` | 0 | 10.7256/2585-7797.2023.4.68943 | noncommercial_only_commercial_permission_required | **не проверено** |
 
+## 7. Что перенесено из архива в NeSToR
+
+* Составы и порядок панелей FTDNA Y12/Y25/Y37/Y67/Y111, Genopoisk Y37/Y50 —
+  `data/panels_archive.json` (из `config/panels.json`, SHA-256 `822f890e…`, совпал с манифестом).
+* Синтетические контрольные CSV `FTDNA-Y37.csv`, `Genopoisk-Y37.csv`, `Genopoisk-Y50.csv`
+  и `README.txt` — `tests/fixtures/archive_examples` (только для тестов разбора и распознавания).
+* Базы, код и поправки шкал не переносились.
+
 ## Ограничения аудита
 
 * Тесты архива (`tests/*.mjs`) не запускались: код архива в этой среде не исполнялся.

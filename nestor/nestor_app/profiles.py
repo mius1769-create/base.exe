@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from . import markers as mk
+from . import panels as pn
 from .db import Tx
 
 CONSENT_TEXT_VERSION = "2026-11-mvp1"
@@ -39,6 +40,8 @@ class OwnerProfileView:
     ancestor_visibility: str
     created_at: str
     markers: dict  # {локус: кортеж | None (нет значения) | Invalid (не распознано)}
+    panel_code: str | None = None   # None — пользовательский набор
+    panel_basis: str = "custom"     # selected | recognized | custom
 
 
 def _clean_text(value: str | None, field: str) -> str | None:
@@ -75,8 +78,18 @@ def create_profile(
     nickname_visibility: str = "hidden",
     ancestor_text: str | None = None,
     ancestor_visibility: str = "hidden",
+    panel_code: str | None = None,
 ) -> int:
-    """Создаёт профиль. Он всегда закрыт (searchable = 0) до явного включения владельцем."""
+    """Создаёт профиль. Он всегда закрыт (searchable = 0) до явного включения владельцем.
+
+    panel_code: код известной панели (позиции = полный состав панели, недостающие —
+    «нет значения»), 'AUTO' (распознать надёжно, иначе пользовательский набор)
+    или None — пользовательский набор (позиции = только указанные локусы).
+    """
+    try:
+        markers, panel_code, panel_basis = pn.apply_panel(markers, panel_code)
+    except (pn.PanelMismatch, pn.UnsupportedPanel) as e:
+        raise ProfileError(str(e)) from None
     if consent_basis not in CONSENT_BASES:
         raise ProfileError("укажите основание загрузки: свой тест или тест другого человека с его разрешения")
     if not consent_confirmed:
@@ -88,11 +101,13 @@ def create_profile(
     with Tx(conn):
         cur = conn.execute(
             """INSERT INTO profiles(owner_user_id, public_handle, kit_id_private, source_format,
+                   panel_code, panel_basis,
                    consent_basis, consent_text_version, consent_confirmed_at, searchable,
                    nickname, nickname_visibility, ancestor_text, ancestor_visibility)
-               VALUES (?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, ?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, ?,?,?,?)""",
             (
                 owner_user_id, _new_handle(), _clean_text(kit_id, "kit ID"), source_format,
+                panel_code, panel_basis,
                 consent_basis, CONSENT_TEXT_VERSION,
                 _clean_text(nickname, "никнейм"), nickname_visibility,
                 _clean_text(ancestor_text, "дальний предок"), ancestor_visibility,
@@ -105,7 +120,8 @@ def create_profile(
         )
         conn.execute(
             "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'upload', ?)",
-            (pid, f"basis={consent_basis}; consent={CONSENT_TEXT_VERSION}; searchable=0"),
+            (pid, f"basis={consent_basis}; consent={CONSENT_TEXT_VERSION}; searchable=0; "
+                  f"panel={panel_code or 'custom'} ({panel_basis})"),
         )
     return pid
 
@@ -133,6 +149,7 @@ def get_owned(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> 
         nickname_visibility=r["nickname_visibility"], ancestor_text=r["ancestor_text"],
         ancestor_visibility=r["ancestor_visibility"], created_at=r["created_at"],
         markers=load_markers(conn, r["id"]),
+        panel_code=r["panel_code"], panel_basis=r["panel_basis"],
     )
 
 
@@ -222,6 +239,8 @@ def export_owner_profile(conn: sqlite3.Connection, owner_user_id: int, profile_i
     return {
         "handle": p.public_handle,
         "source_format": p.source_format,
+        "panel": p.panel_code or "custom",
+        "panel_basis": p.panel_basis,
         "consent_basis": p.consent_basis,
         "searchable": p.searchable,
         "nickname": p.nickname,

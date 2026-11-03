@@ -1,43 +1,54 @@
-"""Панели Y-STR: состав и порядок.
+"""Панели Y-STR: состав, порядок, распознавание и приведение профиля к панели.
 
-Статусы:
-  provisional — порядок FTDNA Y12/Y25/Y37 из открытых описаний; ДОЛЖЕН быть
-                сверен с архивом и контрольными файлами до включения импорта;
-  unsupported — панель не поддерживается (Y67/Y111 ждут сверки, Y700 вне
-                поддержки до появления проверенного формата импорта и сверки).
-Genopoisk Y37/Y50 и Strelka появятся после аудита архива.
+Источник составов: data/panels_archive.json — копия config/panels.json из
+проверенного архива экспертного приложения (SHA-256 .tar.gz 745ca9cd…, файл
+822f890e…). FTDNA Y12/Y25/Y37 совпали по составу и порядку с ранее заданными
+по открытому описанию FTDNA.
+
+Два режима профиля:
+  * известная панель (выбрана пользователем или надёжно распознана) — позиции
+    профиля = полный состав панели; не указанные / пустые позиции хранятся как
+    «нет значения» и в GD попадают в missing_or_invalid;
+  * пользовательский набор (панель неизвестна) — позиции = только заявленные
+    локусы; панель показывается как пользовательская/неполная.
+
+Не поддерживаются: Y700 (нет проверенного формата и сверки), Strelka и прочие
+панели без утверждённого состава.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
-# (маркер, число копий) в порядке FTDNA.
-_Y12 = [
-    ("DYS393", 1), ("DYS390", 1), ("DYS19", 1), ("DYS391", 1), ("DYS385", 2),
-    ("DYS426", 1), ("DYS388", 1), ("DYS439", 1), ("DYS389I", 1), ("DYS392", 1),
-    ("DYS389II", 1),
-]
-_Y25_ADD = [
-    ("DYS458", 1), ("DYS459", 2), ("DYS455", 1), ("DYS454", 1), ("DYS447", 1),
-    ("DYS437", 1), ("DYS448", 1), ("DYS449", 1), ("DYS464", 4),
-]
-_Y37_ADD = [
-    ("DYS460", 1), ("Y-GATA-H4", 1), ("YCAII", 2), ("DYS456", 1), ("DYS607", 1),
-    ("DYS576", 1), ("DYS570", 1), ("CDY", 2), ("DYS442", 1), ("DYS438", 1),
-]
+from .markers import canonical_name, is_observed
+
+DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "panels_archive.json"
+
+# Число копий для справки (allele_count); на GD не влияет.
+_COPIES = {"DYS385": 2, "DYS459": 2, "DYS464": 4, "YCAII": 2, "CDY": 2, "DYF395S1": 2,
+           "DYS413": 2, "DYF387S1": 2, "DYS527": 2, "DYF404S1": 1}
+
+CUSTOM = "CUSTOM"  # пользовательский набор без известной панели
+RECOGNITION_MIN_COVERAGE = 0.9
 
 
 class UnsupportedPanel(ValueError):
     pass
 
 
+class PanelMismatch(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class Panel:
     code: str
+    title: str
     vendor: str
     markers: tuple[tuple[str, int], ...]
-    status: str  # provisional | verified
+    status: str  # archive_verified | archive
 
     @property
     def allele_count(self) -> int:
@@ -48,25 +59,30 @@ class Panel:
         return tuple(m for m, _ in self.markers)
 
 
-PANELS: dict[str, Panel] = {
-    "FTDNA_Y12": Panel("FTDNA_Y12", "FTDNA", tuple(_Y12), "provisional"),
-    "FTDNA_Y25": Panel("FTDNA_Y25", "FTDNA", tuple(_Y12 + _Y25_ADD), "provisional"),
-    "FTDNA_Y37": Panel("FTDNA_Y37", "FTDNA", tuple(_Y12 + _Y25_ADD + _Y37_ADD), "provisional"),
-}
+def _load() -> dict[str, Panel]:
+    data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    out = {}
+    for title, names in data["panels"].items():
+        vendor, _, size = title.partition(" ")
+        code = f"{vendor.upper()}_{size.upper()}"
+        canon = tuple(canonical_name(n)[0] for n in names)
+        status = "archive_verified" if code in ("FTDNA_Y12", "FTDNA_Y25", "FTDNA_Y37") else "archive"
+        out[code] = Panel(code, title, vendor, tuple((n, _COPIES.get(n, 1)) for n in canon), status)
+    return out
+
+
+PANELS: dict[str, Panel] = _load()
 
 UNSUPPORTED = {
-    "FTDNA_Y67": "ждёт сверки состава с архивом",
-    "FTDNA_Y111": "ждёт сверки состава с архивом",
     "Y700": "вне поддержки до появления проверенного формата импорта и сверки",
     "FTDNA_Y700": "вне поддержки до появления проверенного формата импорта и сверки",
-    "GENOPOISK_Y37": "состав и порядок будут взяты из архива",
-    "GENOPOISK_Y50": "состав и порядок будут взяты из архива",
-    "STRELKA": "состав и порядок будут взяты из архива",
+    "STRELKA": "состав и правила панели Strelka не утверждены",
+    "STRELKA_Y111": "состав и правила панели Strelka не утверждены",
 }
 
 
 def get_panel(code: str) -> Panel:
-    key = code.strip().upper()
+    key = code.strip().upper().replace(" ", "_")
     if key in PANELS:
         return PANELS[key]
     if key in UNSUPPORTED:
@@ -74,21 +90,78 @@ def get_panel(code: str) -> Panel:
     raise UnsupportedPanel(f"неизвестная панель {code!r}")
 
 
-def ordered_markers(panel: Panel, markers: dict[str, tuple[float, ...]]) -> list[tuple[str, tuple[float, ...] | None]]:
+def ordered_markers(panel: Panel, markers: dict) -> list[tuple[str, object]]:
     """Маркеры профиля в порядке панели; отсутствующие — None."""
     return [(name, markers.get(name)) for name in panel.marker_names]
 
 
 def missing_markers(panel: Panel, markers: dict) -> list[str]:
     """Позиции панели без корректного значения (нет в профиле, пусто или не распознано)."""
-    return [name for name in panel.marker_names if not isinstance(markers.get(name), tuple)]
+    return [name for name in panel.marker_names if not is_observed(markers.get(name))]
 
 
-def best_complete_panel(markers: dict[str, tuple[float, ...]]) -> str | None:
-    """Наибольшая поддержанная панель, полностью покрытая профилем."""
+def best_complete_panel(markers: dict) -> str | None:
+    """Наибольшая поддержанная панель, полностью покрытая корректными значениями."""
     best = None
     for code, panel in PANELS.items():
         if not missing_markers(panel, markers):
             if best is None or panel.allele_count > PANELS[best].allele_count:
                 best = code
     return best
+
+
+def recognize_panel(loci) -> str | None:
+    """Надёжное распознавание по заявленным локусам (значения не важны).
+
+    Панель считается распознанной, если все заявленные локусы входят в неё и
+    покрывают не меньше 90% её позиций; из подходящих берётся наименьшая
+    (FTDNA Y12 ⊂ Y25 ⊂ Y37 ⊂ Y67 ⊂ Y111). Если подходят несколько панелей
+    одного размера, распознавание не выполняется.
+    """
+    declared = set(loci)
+    if not declared:
+        return None
+    fits = []
+    for code, panel in PANELS.items():
+        names = set(panel.marker_names)
+        if declared <= names and len(declared) / len(names) >= RECOGNITION_MIN_COVERAGE:
+            fits.append((len(names), code))
+    if not fits:
+        return None
+    fits.sort()
+    if len(fits) > 1 and fits[0][0] == fits[1][0]:
+        return None
+    return fits[0][1]
+
+
+def apply_panel(markers: dict, panel_code: str | None) -> tuple[dict, str | None, str]:
+    """Привести профиль к режиму панели.
+
+    panel_code: код панели, 'AUTO' (распознать) или None/CUSTOM (пользовательский набор).
+    Возвращает (позиции профиля, код панели или None, основание: selected | recognized | custom).
+    Для известной панели недостающие позиции добавляются как None; локус вне
+    выбранной панели — ошибка (значения не переносятся молча).
+    """
+    code = (panel_code or "").strip().upper()
+    basis = "selected"
+    if code in ("", CUSTOM):
+        return dict(markers), None, "custom"
+    if code == "AUTO":
+        code = recognize_panel(markers.keys())
+        if code is None:
+            return dict(markers), None, "custom"
+        basis = "recognized"
+    panel = get_panel(code)
+    extra = sorted(set(markers) - set(panel.marker_names))
+    if extra:
+        raise PanelMismatch(f"локусы вне панели {panel.title}: {', '.join(extra)} — выберите другую панель "
+                            f"или «пользовательский набор»")
+    out = {name: markers.get(name) for name in panel.marker_names}
+    return out, panel.code, basis
+
+
+def panel_label(panel_code: str | None, basis: str) -> str:
+    if not panel_code:
+        return "пользовательский набор (панель неизвестна, позиции — только указанные)"
+    title = PANELS[panel_code].title if panel_code in PANELS else panel_code
+    return f"{title} ({'выбрана' if basis == 'selected' else 'распознана'})"

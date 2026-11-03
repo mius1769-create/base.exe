@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS profiles (
     owner_user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     public_handle          TEXT NOT NULL UNIQUE,           -- случайный, без связи с kit ID
     kit_id_private         TEXT,                           -- приватно
-    source_format          TEXT NOT NULL,                  -- manual | ftdna_csv | genopoisk_y37 | ...
+    source_format          TEXT NOT NULL,                  -- manual | table | ...
+    panel_code             TEXT,                           -- FTDNA_Y37, GENOPOISK_Y50 …; NULL — пользовательский набор
+    panel_basis            TEXT NOT NULL DEFAULT 'custom'
+                           CHECK (panel_basis IN ('selected','recognized','custom')),
     consent_basis          TEXT NOT NULL CHECK (consent_basis IN ('own_test','authorized_other')),
     consent_text_version   TEXT NOT NULL,
     consent_confirmed_at   TEXT NOT NULL,
@@ -108,6 +111,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(profile_markers)")}
     if "status" not in cols:  # миграция v1 → v2: позиции без значения / нераспознанные
         conn.execute("ALTER TABLE profile_markers ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'")
+    pcols = {r[1] for r in conn.execute("PRAGMA table_info(profiles)")}
+    if pcols and "panel_code" not in pcols:  # миграция v2 → v3: панель профиля
+        conn.execute("ALTER TABLE profiles ADD COLUMN panel_code TEXT")
+        conn.execute("ALTER TABLE profiles ADD COLUMN panel_basis TEXT NOT NULL DEFAULT 'custom'")
     conn.execute("INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     conn.execute(
         "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', ?)",

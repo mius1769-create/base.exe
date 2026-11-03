@@ -125,6 +125,15 @@ class TestWebSmoke(unittest.TestCase):
             "nickname": "Иван", "nickname_visibility": "public"})
         self.assertIn("закрыт", page)
         self.assertIn("WEBKIT77", page)  # владельцу kit ID виден
+        self.assertIn("FTDNA Y37 (распознана)", page)
+
+        # частичный профиль без панели — пользовательский набор
+        _, form2 = self.get(owner, "/profiles/new")
+        _, page2 = self.post(owner, "/profiles/new", {
+            "csrf": self.csrf(form2), "markers": "DYS393=13\nDYS390=24\nDYS19=", "panel": "CUSTOM",
+            "consent_basis": "own_test", "consent_confirmed": "1"})
+        self.assertIn("пользовательский набор", page2)
+        self.assertIn("нет значения", page2)
         pid = url.rstrip("/").split("/")[-1]
 
         # закрытый профиль гостю не виден даже при 5 одинаковых открытых профилях… их пока нет

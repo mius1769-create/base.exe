@@ -251,14 +251,24 @@ class _Handler(BaseHTTPRequestHandler):
         st = reference.status(self.nestor.settings.manifest_file)
         return f'<p class="{"muted" if st.connected else "warn"}">Научный справочник: {esc(st.reason)}.</p>'
 
-    def _search_form(self, text="", max_gd=DEFAULT_MAX_GD, min_common=DEFAULT_MIN_COMMON, excluded="") -> str:
+    @staticmethod
+    def _panel_select(current="AUTO") -> str:
+        opts = [("AUTO", "определить автоматически (только при надёжном совпадении)"),
+                (panels.CUSTOM, "пользовательский набор — без панели")]
+        opts += [(code, p.title) for code, p in panels.PANELS.items()]
+        return '<select name="panel">' + "".join(
+            f'<option value="{esc(c)}"{" selected" if c == current else ""}>{esc(t)}</option>' for c, t in opts) + "</select>"
+
+    def _search_form(self, text="", max_gd=DEFAULT_MAX_GD, min_common=DEFAULT_MIN_COMMON, excluded="", panel="AUTO") -> str:
         return f"""<div class="card"><h2>Гостевой поиск</h2>
 <p>Вставьте Y-STR-профиль строками <code>МАРКЕР=значение</code> (например <code>DYS393=13</code>,
-<code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения). Профиль <b>не сохраняется</b> и не публикуется.
+<code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения) или таблицу из двух строк
+(заголовки локусов и значения через <code>;</code>). Профиль <b>не сохраняется</b> и не публикуется.
 Гостю показываются случайные {int(GUEST_FRACTION*100)}% подходящих совпадений среди профилей,
 владельцы которых разрешили поиск; повтор запроса даёт ту же выборку.</p>
 <form method="post" action="/guest/search">
 <textarea name="markers" required>{esc(text)}</textarea>
+<p>Панель {self._panel_select(panel)}</p>
 <p>GD не больше <input type="text" name="max_gd" value="{esc(max_gd)}" size="3">,
 сравненных локусов (вошедших в GD) не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3"><br>
 исключить локусы (через запятую) <input type="text" name="excluded" value="{esc(excluded)}" size="30">
@@ -272,7 +282,9 @@ Y700 не поддерживается.</p></div>"""
                 '(DYS389II учитывается как DYS389B = II − I), N — позиции, вошедшие в GD; порог '
                 'минимума считается по N. Остальные позиции не входят в GD по одной причине: '
                 'исключены вами, нет значения или не распознано, разное число копий, '
-                'дробное различие без перевода в шаги (GD «предварительно»).</p>')
+                'дробное различие без перевода в шаги (GD «предварительно»). Позиции профиля с известной '
+                'панелью — весь её состав (неуказанные — «нет значения»); у пользовательского набора — '
+                'только указанные локусы.</p>')
 
     @staticmethod
     def _excluded_list(text: str) -> list[str]:
@@ -314,7 +326,11 @@ Y700 не поддерживается.</p></div>"""
         except ValueError:
             raise ValueError("порог GD и минимум маркеров должны быть числами") from None
         excluded = form.get("excluded", "")
-        query = mk.parse_manual_entries(text)
+        panel = form.get("panel", "AUTO")
+        try:
+            query, _, _ = panels.apply_panel(mk.parse_profile_input(text), panel)
+        except (panels.PanelMismatch, panels.UnsupportedPanel) as e:
+            raise ValueError(str(e)) from None
         res = search.guest_search(self.nestor.conn, self.nestor.secret, query,
                                   max_gd=max_gd, min_common=min_common,
                                   excluded_loci=self._excluded_list(excluded))
@@ -322,7 +338,7 @@ Y700 не поддерживается.</p></div>"""
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
-                   f'{self._match_table(res.matches)}</div>' + self._search_form(text, max_gd, min_common, excluded))
+                   f'{self._match_table(res.matches)}</div>' + self._search_form(text, max_gd, min_common, excluded, panel))
         self._page("Результаты", content, sess)
 
     def _register_form(self, sess):
@@ -386,7 +402,10 @@ Y700 не поддерживается.</p></div>"""
                         for k, v in BASIS_LABELS.items())
         self._page("Новый профиль", f"""<div class="card"><h2>Загрузка профиля</h2>
 <form method="post" action="/profiles/new"><input type="hidden" name="csrf" value="{esc(sess[1])}">
-<p>Маркеры (<code>МАРКЕР=значение</code>, по одному в строке; <code>МАРКЕР=</code> — позиция панели без значения)<br><textarea name="markers" required></textarea></p>
+<p>Маркеры (<code>МАРКЕР=значение</code>, по одному в строке; <code>МАРКЕР=</code> — позиция без значения;
+или таблица из двух строк: заголовки и значения через <code>;</code>)<br><textarea name="markers" required></textarea></p>
+<p>Панель {self._panel_select()}<br><span class="muted">Известная панель: позиции профиля — весь её состав, неуказанные
+сохраняются как «нет значения». Пользовательский набор: позиции — только указанные локусы.</span></p>
 <p>Kit ID (необязательно; виден только вам)<br><input type="text" name="kit_id" maxlength="60"></p>
 <p><b>Чей это тест?</b><br>{basis}
 <label><input type="checkbox" name="consent_confirmed" value="1" required>
@@ -397,12 +416,15 @@ Y700 не поддерживается.</p></div>"""
 <button>Сохранить</button></form></div>""", sess)
 
     def _create_profile(self, uid, form):
-        markers = mk.parse_manual_entries(form.get("markers", ""))
+        text = form.get("markers", "")
+        markers = mk.parse_profile_input(text)
         pid = pr.create_profile(
             self.nestor.conn, uid, markers,
             consent_basis=form.get("consent_basis", ""),
             consent_confirmed=form.get("consent_confirmed") == "1",
             kit_id=form.get("kit_id"),
+            panel_code=form.get("panel", "AUTO"),
+            source_format="table" if mk.looks_like_table(text) else "manual",
             nickname=form.get("nickname"), nickname_visibility=form.get("nickname_visibility", "hidden"),
             ancestor_text=form.get("ancestor_text"), ancestor_visibility=form.get("ancestor_visibility", "hidden"),
         )
@@ -427,7 +449,7 @@ Y700 не поддерживается.</p></div>"""
 <p>Статус: <b>{"поиск включён" if p.searchable else "закрыт — не участвует в поиске"}</b></p>{toggle}
 <p>Kit ID (только для вас): {esc(p.kit_id_private) or "—"}<br>
 Основание загрузки: {esc(BASIS_LABELS.get(p.consent_basis))}<br>
-Панель: {esc(best) + " (порядок предварительный, сверка с архивом)" if best else "полная поддержанная панель не распознана"}</p>
+Панель: {esc(panels.panel_label(p.panel_code, p.panel_basis))}{"" if p.panel_code else (" · полностью покрыта: " + esc(best) if best else "")}</p>
 <p>{"<a href='/profiles/%d/matches'>Совпадения</a> · " % pid if p.searchable else ""}<a href="/profiles/{pid}/export.json">Экспорт JSON</a></p></div>
 <div class="card"><h3>Видимость необязательных полей</h3>
 <form method="post" action="/profiles/{pid}/visibility"><input type="hidden" name="csrf" value="{esc(csrf)}">

@@ -27,6 +27,9 @@ ALIASES = {
     "YGATAH4": "Y-GATA-H4", "Y-GATA-H4": "Y-GATA-H4", "GATAH4": "Y-GATA-H4",
     "GATA-H4": "Y-GATA-H4", "GATAH4.1": "Y-GATA-H4",
     "YCA-II": "YCAII", "YCAII": "YCAII",
+    "A10": "Y-GATA-A10", "GATAA10": "Y-GATA-A10", "YGATAA10": "Y-GATA-A10", "Y-GATA-A10": "Y-GATA-A10",
+    "GGAAT1B07": "Y-GGAAT-1B07", "YGGAAT1B07": "Y-GGAAT-1B07", "Y-GGAAT-1B07": "Y-GGAAT-1B07",
+    "DYS385A/B": "DYS385", "DYS385AB": "DYS385",
 }
 
 _MISSING = {"", "0", "-", "—", "NA", "N/A", "NULL", "NONE", "?", "NAN"}
@@ -138,6 +141,47 @@ def normalize(raw_markers: dict[str, object]) -> dict[str, tuple[float, ...]]:
                 raise MarkerError(f"маркер {name} указан дважды")
             result[name] = list(value)
     return {k: tuple(sorted(v)) for k, v in result.items()}
+
+
+def parse_table_entries(text: str) -> dict:
+    """Таблица из двух строк: заголовки локусов и значения; разделитель ';', TAB или ','.
+
+    Формат синтетических контрольных CSV архива (tests/fixtures/archive_examples).
+    Пустая ячейка — позиция без значения; нераспознанное значение — Invalid.
+    Для пар значений внутри ячейки используется '-' (например 13-13).
+    """
+    lines = [ln.strip().lstrip("\ufeff") for ln in text.splitlines() if ln.strip()]
+    if len(lines) != 2:
+        raise MarkerError("ожидается таблица из двух строк: заголовки локусов и значения одного профиля")
+    sep = next((c for c in (";", "\t", ",") if c in lines[0]), None)
+    if sep is None:
+        raise MarkerError("не найден разделитель столбцов (';', TAB или ',')")
+    header = [h.strip() for h in lines[0].split(sep)]
+    values = [v.strip() for v in lines[1].split(sep)]
+    if len(values) > len(header):
+        raise MarkerError("значений больше, чем заголовков")
+    values += [""] * (len(header) - len(values))
+    raw: dict[str, str] = {}
+    for h, v in zip(header, values):
+        if not h:
+            continue
+        if h in raw:
+            raise MarkerError(f"заголовок {h} повторяется")
+        raw[h] = v
+    entries = normalize_entries(raw)
+    if not any(is_observed(v) for v in entries.values()):
+        raise MarkerError("в профиле нет ни одного маркера со значением")
+    return entries
+
+
+def looks_like_table(text: str) -> bool:
+    first = next((ln for ln in text.splitlines() if ln.strip()), "")
+    return "=" not in first and ":" not in first and any(c in first for c in (";", "\t", ","))
+
+
+def parse_profile_input(text: str) -> dict:
+    """Ручной ввод 'МАРКЕР=значение' или вставленная таблица (заголовки + значения)."""
+    return parse_table_entries(text) if looks_like_table(text) else parse_manual_entries(text)
 
 
 def parse_manual_entries(text: str) -> dict:
