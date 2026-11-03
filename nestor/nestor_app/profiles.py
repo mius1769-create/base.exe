@@ -1,0 +1,232 @@
+"""Пользовательские профили: создание (закрытым), согласия, видимость, удаление."""
+
+from __future__ import annotations
+
+import secrets
+import sqlite3
+from dataclasses import dataclass
+
+from . import markers as mk
+from .db import Tx
+
+CONSENT_TEXT_VERSION = "2026-11-mvp1"
+CONSENT_BASES = ("own_test", "authorized_other")
+VISIBILITY = ("hidden", "registered", "public")
+MAX_TEXT = 200
+
+
+class ProfileError(ValueError):
+    pass
+
+
+class NotFound(ProfileError):
+    pass
+
+
+@dataclass
+class OwnerProfileView:
+    """Полный вид профиля — только для его владельца."""
+
+    id: int
+    public_handle: str
+    kit_id_private: str | None
+    source_format: str
+    consent_basis: str
+    searchable: bool
+    nickname: str | None
+    nickname_visibility: str
+    ancestor_text: str | None
+    ancestor_visibility: str
+    created_at: str
+    markers: dict[str, tuple[float, ...]]
+
+
+def _clean_text(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > MAX_TEXT:
+        raise ProfileError(f"поле «{field}» длиннее {MAX_TEXT} символов")
+    return value
+
+
+def _check_visibility(v: str) -> str:
+    if v not in VISIBILITY:
+        raise ProfileError(f"недопустимая видимость: {v!r}")
+    return v
+
+
+def _new_handle() -> str:
+    return "N-" + secrets.token_hex(6).upper()
+
+
+def create_profile(
+    conn: sqlite3.Connection,
+    owner_user_id: int,
+    markers: dict[str, tuple[float, ...]],
+    *,
+    consent_basis: str,
+    consent_confirmed: bool,
+    source_format: str = "manual",
+    kit_id: str | None = None,
+    nickname: str | None = None,
+    nickname_visibility: str = "hidden",
+    ancestor_text: str | None = None,
+    ancestor_visibility: str = "hidden",
+) -> int:
+    """Создаёт профиль. Он всегда закрыт (searchable = 0) до явного включения владельцем."""
+    if consent_basis not in CONSENT_BASES:
+        raise ProfileError("укажите основание загрузки: свой тест или тест другого человека с его разрешения")
+    if not consent_confirmed:
+        raise ProfileError("необходимо подтвердить право на загрузку профиля")
+    if not markers:
+        raise ProfileError("в профиле нет маркеров")
+    _check_visibility(nickname_visibility)
+    _check_visibility(ancestor_visibility)
+    with Tx(conn):
+        cur = conn.execute(
+            """INSERT INTO profiles(owner_user_id, public_handle, kit_id_private, source_format,
+                   consent_basis, consent_text_version, consent_confirmed_at, searchable,
+                   nickname, nickname_visibility, ancestor_text, ancestor_visibility)
+               VALUES (?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 0, ?,?,?,?)""",
+            (
+                owner_user_id, _new_handle(), _clean_text(kit_id, "kit ID"), source_format,
+                consent_basis, CONSENT_TEXT_VERSION,
+                _clean_text(nickname, "никнейм"), nickname_visibility,
+                _clean_text(ancestor_text, "дальний предок"), ancestor_visibility,
+            ),
+        )
+        pid = int(cur.lastrowid)
+        conn.executemany(
+            "INSERT INTO profile_markers(profile_id, marker, value) VALUES (?,?,?)",
+            [(pid, name, mk.to_storage(v)) for name, v in markers.items()],
+        )
+        conn.execute(
+            "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'upload', ?)",
+            (pid, f"basis={consent_basis}; consent={CONSENT_TEXT_VERSION}; searchable=0"),
+        )
+    return pid
+
+
+def _owned_row(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM profiles WHERE id = ? AND owner_user_id = ?", (profile_id, owner_user_id)
+    ).fetchone()
+    if row is None:
+        raise NotFound("профиль не найден")
+    return row
+
+
+def load_markers(conn: sqlite3.Connection, profile_id: int) -> dict[str, tuple[float, ...]]:
+    rows = conn.execute("SELECT marker, value FROM profile_markers WHERE profile_id = ?", (profile_id,))
+    return {r["marker"]: mk.from_storage(r["value"]) for r in rows}
+
+
+def get_owned(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> OwnerProfileView:
+    r = _owned_row(conn, owner_user_id, profile_id)
+    return OwnerProfileView(
+        id=r["id"], public_handle=r["public_handle"], kit_id_private=r["kit_id_private"],
+        source_format=r["source_format"], consent_basis=r["consent_basis"],
+        searchable=bool(r["searchable"]), nickname=r["nickname"],
+        nickname_visibility=r["nickname_visibility"], ancestor_text=r["ancestor_text"],
+        ancestor_visibility=r["ancestor_visibility"], created_at=r["created_at"],
+        markers=load_markers(conn, r["id"]),
+    )
+
+
+def list_owned(conn: sqlite3.Connection, owner_user_id: int) -> list[OwnerProfileView]:
+    ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM profiles WHERE owner_user_id = ? ORDER BY id", (owner_user_id,))]
+    return [get_owned(conn, owner_user_id, i) for i in ids]
+
+
+def set_searchable(conn: sqlite3.Connection, owner_user_id: int, profile_id: int, enabled: bool) -> None:
+    _owned_row(conn, owner_user_id, profile_id)
+    with Tx(conn):
+        conn.execute(
+            "UPDATE profiles SET searchable = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?",
+            (1 if enabled else 0, profile_id),
+        )
+        conn.execute(
+            "INSERT INTO consent_events(profile_id, event) VALUES (?, ?)",
+            (profile_id, "search_enabled" if enabled else "search_disabled"),
+        )
+
+
+def update_public_fields(
+    conn: sqlite3.Connection,
+    owner_user_id: int,
+    profile_id: int,
+    *,
+    nickname: str | None,
+    nickname_visibility: str,
+    ancestor_text: str | None,
+    ancestor_visibility: str,
+) -> None:
+    _owned_row(conn, owner_user_id, profile_id)
+    _check_visibility(nickname_visibility)
+    _check_visibility(ancestor_visibility)
+    with Tx(conn):
+        conn.execute(
+            """UPDATE profiles SET nickname = ?, nickname_visibility = ?, ancestor_text = ?,
+                   ancestor_visibility = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+               WHERE id = ?""",
+            (_clean_text(nickname, "никнейм"), nickname_visibility,
+             _clean_text(ancestor_text, "дальний предок"), ancestor_visibility, profile_id),
+        )
+        conn.execute(
+            "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'visibility_changed', ?)",
+            (profile_id, f"nickname={nickname_visibility}; ancestor={ancestor_visibility}"),
+        )
+
+
+def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> None:
+    """Полное удаление: профиль, маркеры, журнал согласий, запросы на связь (каскад).
+
+    PRAGMA secure_delete затирает удалённые страницы в файле базы.
+    """
+    _owned_row(conn, owner_user_id, profile_id)
+    with Tx(conn):
+        conn.execute("DELETE FROM profiles WHERE id = ? AND owner_user_id = ?", (profile_id, owner_user_id))
+
+
+def iter_searchable(conn: sqlite3.Connection, exclude_owner: int | None = None):
+    """Только профили, владельцы которых включили сопоставление."""
+    sql = "SELECT * FROM profiles WHERE searchable = 1"
+    params: tuple = ()
+    if exclude_owner is not None:
+        sql += " AND owner_user_id != ?"
+        params = (exclude_owner,)
+    for row in conn.execute(sql + " ORDER BY id", params).fetchall():
+        yield row, load_markers(conn, row["id"])
+
+
+def visible_field(value: str | None, visibility: str, viewer: str) -> str | None:
+    """viewer: 'guest' | 'registered'."""
+    if value is None or visibility == "hidden":
+        return None
+    if visibility == "public":
+        return value
+    return value if viewer == "registered" else None
+
+
+def export_owner_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> dict:
+    """Экспорт собственного профиля владельцем (JSON).
+
+    Массовой выгрузки базы в MVP нет намеренно: она обходила бы гостевое
+    ограничение 20% и согласия владельцев. kit ID и email в экспорт не входят.
+    """
+    p = get_owned(conn, owner_user_id, profile_id)
+    return {
+        "handle": p.public_handle,
+        "source_format": p.source_format,
+        "consent_basis": p.consent_basis,
+        "searchable": p.searchable,
+        "nickname": p.nickname,
+        "nickname_visibility": p.nickname_visibility,
+        "ancestor": p.ancestor_text,
+        "ancestor_visibility": p.ancestor_visibility,
+        "markers": {k: mk.format_value(v) for k, v in sorted(p.markers.items())},
+    }
