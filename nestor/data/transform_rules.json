@@ -156,6 +156,60 @@
       },
       "basis": "легенда Table S4 (data/value_codes.json)",
       "status": "proposed"
+    },
+    {
+      "rule_id": "T12-genopoisk-y37-gatah4",
+      "description": "Genopoisk Y37 → шкала FTDNA: Y-GATA-H4 − 1. Только для профиля сравнения; опубликованное/исходное значение хранится отдельно",
+      "applies_to": {
+        "panels": [
+          "GENOPOISK_Y37"
+        ],
+        "loci": [
+          "Y-GATA-H4"
+        ]
+      },
+      "basis": "предварительный аудит архива в сессии Codex (сообщено заказчиком 2026-11-03); код архива Claude ещё не проверял",
+      "calibration": "preliminary",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T13-genopoisk-y50-offsets",
+      "description": "Genopoisk Y50 → шкала FTDNA: Y-GATA-H4 − 1, DYS520 − 5, A10 − 2. Только для профиля сравнения",
+      "applies_to": {
+        "panels": [
+          "GENOPOISK_Y50"
+        ],
+        "loci": [
+          "Y-GATA-H4",
+          "DYS520",
+          "A10"
+        ]
+      },
+      "basis": "предварительный аудит архива в сессии Codex (сообщено заказчиком 2026-11-03); код архива Claude ещё не проверял",
+      "calibration": "preliminary",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T14-genopoisk-1to1",
+      "description": "Genopoisk ↔ Genopoisk сравниваются 1:1, без поправок",
+      "applies_to": {
+        "panels": [
+          "GENOPOISK_Y37",
+          "GENOPOISK_Y50"
+        ]
+      },
+      "basis": "предварительный аудит архива в сессии Codex (сообщено заказчиком 2026-11-03); код архива Claude ещё не проверял",
+      "status": "proposed"
+    },
+    {
+      "rule_id": "T15-scientific-other-scale",
+      "description": "Сравнение с научным профилем другой шкалы помечается как предварительное; значения между шкалами молча не переносятся",
+      "applies_to": {
+        "sources": "научные источники без подтверждённой калибровки к шкале пользователя"
+      },
+      "basis": "предварительный аудит архива в сессии Codex (сообщено заказчиком 2026-11-03); код архива Claude ещё не проверял",
+      "calibration": "preliminary",
+      "status": "proposed"
     }
   ]
 }
