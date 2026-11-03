@@ -89,7 +89,11 @@ class TestSourceAudit(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for r in RULES["rules"]:
             self.assertTrue(r["basis"], r["rule_id"])
-            self.assertEqual(r["status"], "proposed", r["rule_id"])
+            self.assertIn(r["status"], ("proposed", "approved"), r["rule_id"])
+            if r["status"] == "approved":
+                self.assertIn("решение заказчика", r["basis"], r["rule_id"])
+        approved = {r["rule_id"] for r in RULES["rules"] if r["status"] == "approved"}
+        self.assertEqual(approved, {"T08-father-son", "T09-del-excluded", "T10-binary-float"})
 
     def test_report_is_up_to_date(self):
         self.assertEqual(render_source_audit.main(["--check"]), 0)
