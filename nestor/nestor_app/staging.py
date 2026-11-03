@@ -63,7 +63,8 @@ def _paths(root: Path, upload_id: str) -> tuple[Path, Path]:
 
 def _write_atomic(path: Path, data: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # O_BINARY: на Windows без него os.open пишет в текстовом режиме (\n → \r\n)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     try:
         os.write(fd, data)
         os.fsync(fd)

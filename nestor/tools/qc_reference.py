@@ -29,6 +29,8 @@ import statistics
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from inspect_reference import open_ro, sha256_file  # noqa: E402
 
@@ -159,6 +161,8 @@ def run_qc(path: Path) -> tuple[dict, list[dict]]:
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("snapshot", type=Path)
     ap.add_argument("--summary", type=Path)

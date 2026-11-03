@@ -27,6 +27,8 @@ from nestor_app.backups import PREFIX, keep_days_from_env, make_backup, prune  #
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--var-dir", type=Path, default=ROOT / "var")
     ap.add_argument("--keep-days", type=float, default=keep_days_from_env())

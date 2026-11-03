@@ -20,6 +20,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -42,6 +44,13 @@ def table_names(conn) -> list[str]:
 
 def passport(path: Path) -> dict:
     conn = open_ro(path)
+    try:
+        return _passport(conn, path)
+    finally:
+        conn.close()
+
+
+def _passport(conn, path: Path) -> dict:
     tables = table_names(conn)
     out: dict = {
         "file": path.name,
@@ -96,7 +105,11 @@ def compare(a: Path, b: Path) -> dict:
     def load(conn):
         return {(r["source"], r["id"]): r["markers"] for r in conn.execute("SELECT source, id, markers FROM samples")}
 
-    da, db = load(ca), load(cb)
+    try:
+        da, db = load(ca), load(cb)
+    finally:
+        ca.close()
+        cb.close()
     only_a = set(da) - set(db)
     only_b = set(db) - set(da)
     common = set(da) & set(db)
@@ -117,6 +130,8 @@ def compare(a: Path, b: Path) -> dict:
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("snapshot", type=Path)
     ap.add_argument("--compare", type=Path)

@@ -14,6 +14,8 @@ from nestor_app.web import NestorApp  # noqa: E402
 
 
 def main() -> None:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description="NeSToR — локальный MVP (только 127.0.0.1)")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--var-dir", default=None, help="папка для nestor_users.db и секрета (по умолчанию nestor/var)")

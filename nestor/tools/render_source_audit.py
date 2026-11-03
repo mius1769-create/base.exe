@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = ROOT / "data" / "source_audit.json"
 QC = ROOT / "docs" / "QC_SUMMARY.json"
@@ -122,6 +124,8 @@ def render() -> str:
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args(argv)

@@ -25,6 +25,8 @@ import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -152,6 +154,8 @@ def audit(archive: Path, workdir: Path, expected: str | None) -> dict:
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("archive", type=Path)
     ap.add_argument("--expected-sha256")

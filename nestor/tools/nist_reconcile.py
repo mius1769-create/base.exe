@@ -29,6 +29,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from inspect_reference import open_ro, sha256_file  # noqa: E402
 from xlsx_read import read_font_colors, read_sheet  # noqa: E402
@@ -236,6 +238,8 @@ def reconcile(candidate: Path, s4: Path, pdr: Path | None, id_col: str, group_co
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--candidate", type=Path, required=True)
     ap.add_argument("--table-s4", type=Path, required=True)

@@ -24,6 +24,8 @@ from nestor_app import candidates, importer  # noqa: E402
 
 
 def main(argv=None) -> int:
+    from nestor_app.cli import utf8_output
+    utf8_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file", type=Path)
     ap.add_argument("--db", type=Path, default=ROOT / "var" / "nestor_science_candidates.db")
