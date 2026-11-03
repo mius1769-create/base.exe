@@ -79,8 +79,9 @@ def ordered_markers(panel: Panel, markers: dict[str, tuple[float, ...]]) -> list
     return [(name, markers.get(name)) for name in panel.marker_names]
 
 
-def missing_markers(panel: Panel, markers: dict[str, tuple[float, ...]]) -> list[str]:
-    return [name for name in panel.marker_names if name not in markers]
+def missing_markers(panel: Panel, markers: dict) -> list[str]:
+    """Позиции панели без корректного значения (нет в профиле, пусто или не распознано)."""
+    return [name for name in panel.marker_names if not isinstance(markers.get(name), tuple)]
 
 
 def best_complete_panel(markers: dict[str, tuple[float, ...]]) -> str | None:

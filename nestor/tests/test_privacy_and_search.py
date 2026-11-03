@@ -116,8 +116,9 @@ class TestNoPrivateDataInResults(unittest.TestCase):
         self.assertNotIn("KIT", blob)
         self.assertNotIn("@example.test", blob)
         self.assertNotIn("SECRETKIT1", blob)
-        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "compared", "overlap", "copy_count_differences",
-                          "fractional_differences", "nickname", "ancestor", "preliminary"})
+        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "compared", "panel_overlap", "missing_or_invalid",
+                          "copy_count_differences", "allele_differences", "user_excluded",
+                          "nickname", "ancestor", "preliminary"})
         self.assertNotIn("kit_id_private", export)
 
     def test_field_visibility_guest_vs_registered(self):
@@ -258,8 +259,8 @@ class TestMinMarkersThreshold(unittest.TestCase):
 
     def test_threshold_met_by_compared_loci_only(self):
         [m] = search.owner_search(self.conn, self.owner, self.own, min_common=10)
-        self.assertEqual((m.gd, m.compared, m.overlap), (0, 10, 12))
-        self.assertEqual((m.copy_count_differences, m.fractional_differences, m.preliminary), (1, 1, True))
+        self.assertEqual((m.gd, m.compared, m.panel_overlap), (0, 10, 12))
+        self.assertEqual((m.copy_count_differences, m.allele_differences, m.preliminary), (1, 1, True))
 
 
 class TestDeletion(unittest.TestCase):

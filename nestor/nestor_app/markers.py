@@ -4,7 +4,10 @@
   ключ — каноническое имя маркера (например "DYS385", "DYS389II", "Y-GATA-H4");
   значение — кортеж аллелей (1 элемент для обычного маркера, несколько — для
   многокопийных DYS385/DYS459/DYS464/YCAII/CDY и т.п.), отсортированный.
-Пустые, нулевые и нечисловые значения считаются отсутствующими и не хранятся.
+Позиция профиля может быть без значения (None: пусто, 0, «-», NA …) или с
+нераспознанным значением (Invalid — исходная строка сохраняется). Такие позиции
+остаются в профиле: они входят в пересечение панелей и учитываются в GD
+отдельной категорией missing_or_invalid.
 """
 
 from __future__ import annotations
@@ -33,6 +36,18 @@ _NUM_RE = re.compile(r"^\d{1,3}(\.\d)?$")
 
 class MarkerError(ValueError):
     pass
+
+
+class Invalid(str):
+    """Нераспознанное значение позиции; хранится исходная строка."""
+
+
+Value = "tuple[float, ...] | None | Invalid"
+
+
+def is_observed(value) -> bool:
+    """Корректный вызов: кортеж чисел (не None и не Invalid)."""
+    return isinstance(value, tuple)
 
 
 def canonical_name(raw: str) -> tuple[str, str | None]:
@@ -71,8 +86,45 @@ def parse_value(raw: object) -> tuple[float, ...] | None:
     return tuple(sorted(values))
 
 
+def parse_entry(raw: object):
+    """Значение позиции: кортеж, None (нет значения) или Invalid (не распознано)."""
+    try:
+        return parse_value(raw)
+    except MarkerError:
+        return Invalid(str(raw).strip())
+
+
+def normalize_entries(raw_markers: dict[str, object]) -> dict:
+    """Как normalize(), но сохраняет позиции без значения (None) и нераспознанные (Invalid).
+
+    Копии a/b/c/d сводятся к одному локусу; если хотя бы одна копия не распознана
+    или часть копий отсутствует, позиция целиком — Invalid с исходными строками.
+    """
+    singles: dict[str, object] = {}
+    copies: dict[str, list[tuple[str, object]]] = {}
+    for raw_name, raw_value in raw_markers.items():
+        name, suffix = canonical_name(raw_name)
+        if suffix is not None:
+            copies.setdefault(name, []).append((suffix, raw_value))
+            continue
+        if name in singles or name in copies:
+            raise MarkerError(f"маркер {name} указан дважды")
+        singles[name] = parse_entry(raw_value)
+    for name, parts in copies.items():
+        if name in singles:
+            raise MarkerError(f"маркер {name} указан дважды")
+        parsed = [parse_entry(v) for _, v in sorted(parts)]
+        if all(p is None for p in parsed):
+            singles[name] = None
+        elif all(is_observed(p) for p in parsed):
+            singles[name] = tuple(sorted(x for p in parsed for x in p))
+        else:
+            singles[name] = Invalid(";".join(f"{sfx}={str(v).strip()}" for sfx, v in sorted(parts)))
+    return {k: (tuple(sorted(v)) if is_observed(v) else v) for k, v in singles.items()}
+
+
 def normalize(raw_markers: dict[str, object]) -> dict[str, tuple[float, ...]]:
-    """Нормализует словарь {имя: значение} в каноническое представление."""
+    """Нормализует словарь {имя: значение} в каноническое представление (только корректные значения)."""
     result: dict[str, list[float]] = {}
     for raw_name, raw_value in raw_markers.items():
         name, suffix = canonical_name(raw_name)
@@ -88,12 +140,20 @@ def normalize(raw_markers: dict[str, object]) -> dict[str, tuple[float, ...]]:
     return {k: tuple(sorted(v)) for k, v in result.items()}
 
 
-def parse_manual_text(text: str) -> dict[str, tuple[float, ...]]:
-    """Ручной ввод: строки или пары через ';' вида `DYS393=13`, `DYS385 = 11-14`.
+def parse_manual_entries(text: str) -> dict:
+    """Ручной ввод с сохранением пропусков и нераспознанных значений.
 
+    Строки или пары через ';' вида `DYS393=13`, `DYS385 = 11-14`, `DYS19=` (нет значения).
     Это не формат импорта файлов (FTDNA CSV / Genopoisk / Strelka XLSX будут
     перенесены из архива вместе с контрольными файлами), а форма ручного ввода.
     """
+    entries = normalize_entries(_split_manual(text))
+    if not any(is_observed(v) for v in entries.values()):
+        raise MarkerError("в профиле нет ни одного маркера со значением")
+    return entries
+
+
+def _split_manual(text: str) -> dict[str, str]:
     raw: dict[str, str] = {}
     for chunk in re.split(r"[;\n]+", text):
         chunk = chunk.strip()
@@ -109,7 +169,12 @@ def parse_manual_text(text: str) -> dict[str, tuple[float, ...]]:
         if name in raw:
             raise MarkerError(f"маркер {name} указан дважды")
         raw[name] = value.strip()
-    markers = normalize(raw)
+    return raw
+
+
+def parse_manual_text(text: str) -> dict[str, tuple[float, ...]]:
+    """Строгий ручной ввод: только корректные значения; нераспознанное — ошибка."""
+    markers = normalize(_split_manual(text))
     if not markers:
         raise MarkerError("в профиле нет ни одного маркера со значением")
     return markers
@@ -119,14 +184,31 @@ def format_value(value: tuple[float, ...]) -> str:
     return "-".join(str(int(v)) if v.is_integer() else str(v) for v in value)
 
 
-def canonical_string(markers: dict[str, tuple[float, ...]]) -> str:
-    """Стабильная строка профиля (для ключа гостевой выборки)."""
-    return ";".join(f"{k}={format_value(markers[k])}" for k in sorted(markers))
+def display_value(value) -> str:
+    if is_observed(value):
+        return format_value(value)
+    if value is None:
+        return ""
+    return "?" + str(value)
 
 
-def to_storage(value: tuple[float, ...]) -> str:
-    return format_value(value)
+def canonical_string(markers: dict) -> str:
+    """Стабильная строка профиля (для ключа гостевой выборки); пропуски — 'K=', нераспознанные — 'K=?…'."""
+    return ";".join(f"{k}={display_value(markers[k])}" for k in sorted(markers))
 
 
-def from_storage(text: str) -> tuple[float, ...]:
+def to_storage(value) -> tuple[str, str]:
+    """(значение, статус): ('13','ok') | ('','missing') | (исходная строка,'invalid')."""
+    if is_observed(value):
+        return format_value(value), "ok"
+    if value is None:
+        return "", "missing"
+    return str(value), "invalid"
+
+
+def from_storage(text: str, status: str = "ok"):
+    if status == "missing":
+        return None
+    if status == "invalid":
+        return Invalid(text)
     return tuple(float(x) for x in text.split("-"))

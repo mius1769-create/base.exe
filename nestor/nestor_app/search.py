@@ -3,8 +3,9 @@
 Гостевой поиск (без аккаунта):
   1. загруженный гостем профиль никуда не сохраняется;
   2. кандидаты — только профили с разрешённым поиском (searchable = 1);
-  3. подходящие совпадения = GD <= max_gd и фактически сравненных локусов
-     (compared, без локусов с разным числом копий и дробными различиями) >= min_common;
+  3. подходящие совпадения = GD <= max_gd и compared >= min_common, где compared —
+     позиции, вошедшие в численный GD (без исключённых пользователем, без значения /
+     нераспознанных, с разным числом копий и с дробными различиями — см. gd.py);
   4. из ВСЕГО списка подходящих выбирается floor(n * 20%) совпадений случайно,
      но детерминированно: ключ = HMAC-SHA256(секрет сервера, канонический
      запрос), вес совпадения = HMAC-SHA256(ключ, public_handle); берутся k
@@ -27,7 +28,7 @@ from dataclasses import dataclass
 from . import markers as mk
 from . import profiles as pr
 from .config import DEFAULT_MAX_GD, DEFAULT_MIN_COMMON, GUEST_FRACTION, MAX_ALLOWED_GD
-from .gd import genetic_distance
+from .gd import genetic_distance, normalize_excluded
 
 SAMPLING_VERSION = "guest-v1"
 
@@ -42,13 +43,15 @@ class PublicMatch:
 
     handle: str
     gd: int
-    compared: int              # локусы, фактически вошедшие в GD (по ним — порог min_common)
+    compared: int              # позиции, вошедшие в численный GD (по ним — порог min_common)
     nickname: str | None
     ancestor: str | None
     preliminary: bool = False  # есть дробные различия без перевода в шаги (T18)
-    overlap: int = 0           # локусы в пересечении профилей
-    copy_count_differences: int = 0   # локусы с разным числом копий (вне GD и compared)
-    fractional_differences: int = 0   # локусы с неподтверждёнными дробными различиями (вне GD и compared)
+    panel_overlap: int = 0     # общие позиции панелей
+    missing_or_invalid: int = 0       # нет значения / не распознано (вне GD)
+    copy_count_differences: int = 0   # разное число копий (вне GD)
+    allele_differences: int = 0       # дробные различия без перевода в шаги (вне GD)
+    user_excluded: int = 0            # исключены пользователем (вне GD)
 
 
 @dataclass(frozen=True)
@@ -64,18 +67,20 @@ def _check_params(max_gd: int, min_common: int) -> None:
         raise SearchError("минимум общих маркеров должен быть не меньше 1")
 
 
-def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None):
+def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None, excluded_loci=()):
     out: list[PublicMatch] = []
     for row, markers in pr.iter_searchable(conn, exclude_owner=exclude_owner):
-        res = genetic_distance(query, markers)
+        res = genetic_distance(query, markers, excluded=excluded_loci)
         if res.compared >= min_common and res.gd <= max_gd:
             out.append(PublicMatch(
                 handle=row["public_handle"], gd=res.gd, compared=res.compared,
                 nickname=pr.visible_field(row["nickname"], row["nickname_visibility"], viewer),
                 ancestor=pr.visible_field(row["ancestor_text"], row["ancestor_visibility"], viewer),
-                preliminary=res.preliminary, overlap=res.overlap,
+                preliminary=res.preliminary, panel_overlap=res.panel_overlap,
+                missing_or_invalid=len(res.missing_or_invalid),
                 copy_count_differences=len(res.copy_count_differences),
-                fractional_differences=len(res.allele_differences),
+                allele_differences=len(res.allele_differences),
+                user_excluded=len(res.user_excluded),
             ))
     return out
 
@@ -84,8 +89,11 @@ def _sort(matches: list[PublicMatch]) -> list[PublicMatch]:
     return sorted(matches, key=lambda m: (m.gd, -m.compared, m.handle))
 
 
-def guest_query_key(secret: bytes, query: dict[str, tuple[float, ...]], max_gd: int, min_common: int) -> bytes:
+def guest_query_key(secret: bytes, query: dict, max_gd: int, min_common: int, excluded_loci=()) -> bytes:
     canon = f"{SAMPLING_VERSION}|gd<={max_gd}|common>={min_common}|{mk.canonical_string(query)}"
+    excl = sorted(normalize_excluded(excluded_loci))
+    if excl:  # без исключений ключ совпадает с guest-v1 (переносимый тест-вектор не меняется)
+        canon += "|excluded=" + ",".join(excl)
     return hmac.new(secret, canon.encode(), hashlib.sha256).digest()
 
 
@@ -108,13 +116,14 @@ def guest_search(
     *,
     max_gd: int = DEFAULT_MAX_GD,
     min_common: int = DEFAULT_MIN_COMMON,
+    excluded_loci=(),
 ) -> GuestResult:
     """Гостевой поиск. Ничего не пишет в базу."""
     _check_params(max_gd, min_common)
-    if not query:
+    if not any(mk.is_observed(v) for v in query.values()):
         raise SearchError("пустой профиль")
-    matches = _candidates(conn, query, max_gd, min_common, viewer="guest")
-    key = guest_query_key(secret, query, max_gd, min_common)
+    matches = _candidates(conn, query, max_gd, min_common, viewer="guest", excluded_loci=excluded_loci)
+    key = guest_query_key(secret, query, max_gd, min_common, excluded_loci)
     return GuestResult(matches=guest_sample(matches, key), shown_fraction=GUEST_FRACTION)
 
 
@@ -125,6 +134,7 @@ def owner_search(
     *,
     max_gd: int = DEFAULT_MAX_GD,
     min_common: int = DEFAULT_MIN_COMMON,
+    excluded_loci=(),
 ) -> list[PublicMatch]:
     _check_params(max_gd, min_common)
     own = pr.get_owned(conn, owner_user_id, profile_id)
@@ -134,4 +144,4 @@ def owner_search(
             "(закрытые профили не участвуют в поиске ни с какой стороны)"
         )
     return _sort(_candidates(conn, own.markers, max_gd, min_common, viewer="registered",
-                             exclude_owner=owner_user_id))
+                             exclude_owner=owner_user_id, excluded_loci=excluded_loci))

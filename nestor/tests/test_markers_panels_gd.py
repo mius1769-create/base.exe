@@ -73,7 +73,7 @@ class TestGD(unittest.TestCase):
     def test_identical_profiles(self):
         r = genetic_distance(BASE_Y37, dict(BASE_Y37))
         # 30 локусов: DYS389II заменён производным DYS389B (T16)
-        self.assertEqual((r.gd, r.compared, r.overlap, r.preliminary), (0, 30, 30, False))
+        self.assertEqual((r.gd, r.compared, r.panel_overlap, r.preliminary), (0, 30, 30, False))
         self.assertEqual(r.derived_loci, ("DYS389B",))
 
     def test_single_and_multi_copy_steps(self):
@@ -90,7 +90,7 @@ class TestGD(unittest.TestCase):
         a = {"DYS389I": (13.0,), "DYS389II": (29.0,)}
         b = {"DYS389I": (13.0,), "DYS389II": (30.0,)}     # B: 16 против 17
         r = genetic_distance(a, b)
-        self.assertEqual((r.gd, r.compared, r.overlap), (1, 2, 2))
+        self.assertEqual((r.gd, r.compared, r.panel_overlap), (1, 2, 2))
         self.assertNotIn("DYS389II", r.per_locus)
         c = {"DYS389I": (14.0,), "DYS389II": (30.0,)}     # I +1, B тот же: 1 шаг, а не 2
         self.assertEqual(genetic_distance(a, c).gd, 1)
@@ -103,7 +103,7 @@ class TestGD(unittest.TestCase):
         b = {"DYS19": (14.0,), "DYS464": (15.0, 15.0, 17.0, 17.0, 18.0), "DYF404S1": (12.0, 15.0)}
         r = genetic_distance(a, b)
         # без +1; локусы с разным числом копий — только отдельно, не в compared
-        self.assertEqual((r.gd, r.compared, r.overlap), (0, 1, 3))
+        self.assertEqual((r.gd, r.compared, r.panel_overlap), (0, 1, 3))
         self.assertEqual(set(r.copy_count_differences), {("DYS464", 4, 5), ("DYF404S1", 1, 2)})
         self.assertIsNone(marker_distance((15.0, 15.0, 17.0, 17.0), (15.0, 15.0, 17.0, 17.0, 18.0)))
 
@@ -111,26 +111,26 @@ class TestGD(unittest.TestCase):
         self.assertEqual(marker_distance((12.1,), (12.1,)), 0)           # точное совпадение
         self.assertIsNone(marker_distance((12.0,), (12.1,)))              # .1 — не 0,1 шага
         r = genetic_distance({"DYS458": (17.2,), "DYS19": (14.0,)}, {"DYS458": (18.2,), "DYS19": (15.0,)})
-        self.assertEqual((r.gd, r.compared, r.overlap, r.preliminary), (1, 1, 2, True))
+        self.assertEqual((r.gd, r.compared, r.panel_overlap, r.preliminary), (1, 1, 2, True))
         self.assertEqual(r.allele_differences, (("DYS458", (17.2,), (18.2,)),))
         self.assertEqual(marker_distance((12.0,), (14.0,)), 2)
 
     def test_only_common_markers_are_compared(self):
         short = {k: BASE_Y37[k] for k in ("DYS393", "DYS390", "DYS19")}
         r = genetic_distance(short, BASE_Y37)
-        self.assertEqual((r.gd, r.compared, r.overlap), (0, 3, 3))
+        self.assertEqual((r.gd, r.compared, r.panel_overlap), (0, 3, 3))
         self.assertEqual(genetic_distance(short, {"DYS999": (10.0,)}).compared, 0)
 
     def test_counters_are_separate(self):
         a = {"DYS19": (14.0,), "DYS390": (24.0,), "DYS464": (15.0, 15.0, 17.0, 17.0), "DYS458": (17.2,), "DYS393": (13.0,)}
         b = {"DYS19": (15.0,), "DYS390": (24.0,), "DYS464": (15.0, 17.0, 17.0), "DYS458": (18.2,), "DYS437": (15.0,)}
         r = genetic_distance(a, b)
-        self.assertEqual(r.overlap, 4)                                   # DYS19, DYS390, DYS464, DYS458
+        self.assertEqual(r.panel_overlap, 4)                                   # DYS19, DYS390, DYS464, DYS458
         self.assertEqual(r.compared, 2)                                  # DYS19, DYS390
         self.assertEqual(r.gd, 1)
         self.assertEqual([x[0] for x in r.copy_count_differences], ["DYS464"])
         self.assertEqual([x[0] for x in r.allele_differences], ["DYS458"])
-        self.assertEqual(r.overlap, r.compared + len(r.copy_count_differences) + len(r.allele_differences))
+        self.assertEqual(r.panel_overlap, r.compared + len(r.copy_count_differences) + len(r.allele_differences))
 
 
 if __name__ == "__main__":

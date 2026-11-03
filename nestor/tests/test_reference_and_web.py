@@ -111,6 +111,8 @@ class TestWebSmoke(unittest.TestCase):
         guest = self.client()
         _, home = self.get(guest, "/")
         self.assertIn("Гостевой поиск", home)
+        self.assertIn("общие позиции панелей", home)          # пояснение счётчиков
+        self.assertIn('name="excluded"', home)
         self.assertIn("не подключён", home)
 
         owner = self.client()
@@ -135,6 +137,12 @@ class TestWebSmoke(unittest.TestCase):
         self.assertIn("В выборке нет совпадений", res)
         self.assertNotIn("WEBKIT77", res)
         self.assertNotIn("w@example.test", res)
+
+        # пропуск и нераспознанное значение в запросе, исключённые локусы — без ошибки
+        _, res = self.post(guest, "/guest/search", {"markers": as_text(BASE_Y37) + "\nDYS999=\nDYS998=1x",
+                                                    "max_gd": "0", "excluded": "DYS19, DYS390"})
+        self.assertIn("Гостевая выборка", res)
+        self.assertIn('value="DYS19, DYS390"', res)
 
         # CSRF и чужой источник
         with self.assertRaises(urllib.error.HTTPError):

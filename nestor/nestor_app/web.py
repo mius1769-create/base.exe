@@ -251,19 +251,32 @@ class _Handler(BaseHTTPRequestHandler):
         st = reference.status(self.nestor.settings.manifest_file)
         return f'<p class="{"muted" if st.connected else "warn"}">Научный справочник: {esc(st.reason)}.</p>'
 
-    def _search_form(self, text="", max_gd=DEFAULT_MAX_GD, min_common=DEFAULT_MIN_COMMON) -> str:
+    def _search_form(self, text="", max_gd=DEFAULT_MAX_GD, min_common=DEFAULT_MIN_COMMON, excluded="") -> str:
         return f"""<div class="card"><h2>Гостевой поиск</h2>
 <p>Вставьте Y-STR-профиль строками <code>МАРКЕР=значение</code> (например <code>DYS393=13</code>,
-<code>DYS385=11-14</code>). Профиль <b>не сохраняется</b> и не публикуется.
+<code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения). Профиль <b>не сохраняется</b> и не публикуется.
 Гостю показываются случайные {int(GUEST_FRACTION*100)}% подходящих совпадений среди профилей,
 владельцы которых разрешили поиск; повтор запроса даёт ту же выборку.</p>
 <form method="post" action="/guest/search">
 <textarea name="markers" required>{esc(text)}</textarea>
 <p>GD не больше <input type="text" name="max_gd" value="{esc(max_gd)}" size="3">,
-сравненных локусов не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3">
-<button>Искать</button></p></form>{self._ref_note()}
+сравненных локусов (вошедших в GD) не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3"><br>
+исключить локусы (через запятую) <input type="text" name="excluded" value="{esc(excluded)}" size="30">
+<button>Искать</button></p></form>{self._legend()}{self._ref_note()}
 <p class="muted">Импорт файлов FTDNA CSV, Genopoisk Y37/Y50 и Strelka XLSX будет добавлен после аудита архива.
 Y700 не поддерживается.</p></div>"""
+
+    @staticmethod
+    def _legend() -> str:
+        return ('<p class="muted">«Сравнено N из M»: M — общие позиции панелей двух профилей '
+                '(DYS389II учитывается как DYS389B = II − I), N — позиции, вошедшие в GD; порог '
+                'минимума считается по N. Остальные позиции не входят в GD по одной причине: '
+                'исключены вами, нет значения или не распознано, разное число копий, '
+                'дробное различие без перевода в шаги (GD «предварительно»).</p>')
+
+    @staticmethod
+    def _excluded_list(text: str) -> list[str]:
+        return [x.strip() for x in (text or "").replace(";", ",").split(",") if x.strip()]
 
     def _home(self, sess):
         self._page("Поиск", self._search_form(), sess)
@@ -281,14 +294,16 @@ Y700 не поддерживается.</p></div>"""
                            f'<button>Запросить связь</button></form>')
             gd = f"{m.gd} (предварительно)" if m.preliminary else str(m.gd)
             extra = []
-            if m.copy_count_differences:
-                extra.append(f"разное число копий: {m.copy_count_differences}")
-            if m.fractional_differences:
-                extra.append(f"дробные различия: {m.fractional_differences}")
-            cmp_cell = f"{m.compared} из {m.overlap}" + (f" ({'; '.join(extra)})" if extra else "")
+            for n, label in ((m.user_excluded, "исключено вами"),
+                             (m.missing_or_invalid, "нет значения / не распознано"),
+                             (m.copy_count_differences, "разное число копий"),
+                             (m.allele_differences, "дробное различие")):
+                if n:
+                    extra.append(f"{label}: {n}")
+            cmp_cell = f"сравнено {m.compared} из {m.panel_overlap}" + (f" ({'; '.join(extra)})" if extra else "")
             rows.append(f"<tr><td>{esc(m.handle)}</td><td>{gd}</td><td>{esc(cmp_cell)}</td>"
                         f"<td>{esc(m.nickname) or '—'}</td><td>{esc(m.ancestor) or '—'}</td><td>{contact}</td></tr>")
-        return ("<table><tr><th>Профиль</th><th>GD</th><th>Сравнено локусов (из общих)</th><th>Никнейм</th>"
+        return ("<table><tr><th>Профиль</th><th>GD</th><th>Локусы: сравнено из общих позиций панелей</th><th>Никнейм</th>"
                 "<th>Дальний предок</th><th></th></tr>" + "".join(rows) + "</table>")
 
     def _guest_search(self, sess, form):
@@ -298,14 +313,16 @@ Y700 не поддерживается.</p></div>"""
             min_common = int(form.get("min_common") or DEFAULT_MIN_COMMON)
         except ValueError:
             raise ValueError("порог GD и минимум маркеров должны быть числами") from None
-        query = mk.parse_manual_text(text)
+        excluded = form.get("excluded", "")
+        query = mk.parse_manual_entries(text)
         res = search.guest_search(self.nestor.conn, self.nestor.secret, query,
-                                  max_gd=max_gd, min_common=min_common)
+                                  max_gd=max_gd, min_common=min_common,
+                                  excluded_loci=self._excluded_list(excluded))
         content = (f'<div class="card"><h2>Гостевая выборка</h2>'
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
-                   f'{self._match_table(res.matches)}</div>' + self._search_form(text, max_gd, min_common))
+                   f'{self._match_table(res.matches)}</div>' + self._search_form(text, max_gd, min_common, excluded))
         self._page("Результаты", content, sess)
 
     def _register_form(self, sess):
@@ -369,7 +386,7 @@ Y700 не поддерживается.</p></div>"""
                         for k, v in BASIS_LABELS.items())
         self._page("Новый профиль", f"""<div class="card"><h2>Загрузка профиля</h2>
 <form method="post" action="/profiles/new"><input type="hidden" name="csrf" value="{esc(sess[1])}">
-<p>Маркеры (<code>МАРКЕР=значение</code>, по одному в строке)<br><textarea name="markers" required></textarea></p>
+<p>Маркеры (<code>МАРКЕР=значение</code>, по одному в строке; <code>МАРКЕР=</code> — позиция панели без значения)<br><textarea name="markers" required></textarea></p>
 <p>Kit ID (необязательно; виден только вам)<br><input type="text" name="kit_id" maxlength="60"></p>
 <p><b>Чей это тест?</b><br>{basis}
 <label><input type="checkbox" name="consent_confirmed" value="1" required>
@@ -380,7 +397,7 @@ Y700 не поддерживается.</p></div>"""
 <button>Сохранить</button></form></div>""", sess)
 
     def _create_profile(self, uid, form):
-        markers = mk.parse_manual_text(form.get("markers", ""))
+        markers = mk.parse_manual_entries(form.get("markers", ""))
         pid = pr.create_profile(
             self.nestor.conn, uid, markers,
             consent_basis=form.get("consent_basis", ""),
@@ -397,8 +414,12 @@ Y700 не поддерживается.</p></div>"""
         uid, csrf = sess
         p = pr.get_owned(self.nestor.conn, uid, pid)
         best = panels.best_complete_panel(p.markers)
-        marker_rows = "".join(f"<tr><td>{esc(k)}</td><td>{esc(mk.format_value(v))}</td></tr>"
-                              for k, v in sorted(p.markers.items()))
+        def cell(v):
+            if mk.is_observed(v):
+                return esc(mk.format_value(v))
+            return '<span class="muted">нет значения</span>' if v is None else f'<span class="warn">не распознано: {esc(v)}</span>'
+        marker_rows = "".join(f"<tr><td>{esc(k)}</td><td>{cell(v)}</td></tr>" for k, v in sorted(p.markers.items()))
+        n_ok = sum(1 for v in p.markers.values() if mk.is_observed(v))
         toggle = (f'<form method="post" action="/profiles/{pid}/searchable"><input type="hidden" name="csrf" value="{esc(csrf)}">'
                   f'<input type="hidden" name="enabled" value="{0 if p.searchable else 1}">'
                   f'<button>{"Выключить сопоставление" if p.searchable else "Включить сопоставление"}</button></form>')
@@ -413,7 +434,7 @@ Y700 не поддерживается.</p></div>"""
 <p>Никнейм <input type="text" name="nickname" value="{esc(p.nickname)}" maxlength="200"> {self._vis_select("nickname_visibility", p.nickname_visibility)}</p>
 <p>Дальний предок <input type="text" name="ancestor_text" value="{esc(p.ancestor_text)}" maxlength="200"> {self._vis_select("ancestor_visibility", p.ancestor_visibility)}</p>
 <button>Сохранить</button></form></div>
-<div class="card"><h3>Маркеры ({len(p.markers)})</h3><table>{marker_rows}</table></div>
+<div class="card"><h3>Позиции профиля: {len(p.markers)}, со значением {n_ok}</h3><table>{marker_rows}</table></div>
 <div class="card"><h3>Удаление</h3><form method="post" action="/profiles/{pid}/delete">
 <input type="hidden" name="csrf" value="{esc(csrf)}"><label><input type="checkbox" name="confirm" value="1" required>
 Удалить профиль, маркеры, журнал согласий и запросы на связь без возможности восстановления</label>
@@ -427,11 +448,15 @@ Y700 не поддерживается.</p></div>"""
         try:
             max_gd = int(q.get("max_gd", [DEFAULT_MAX_GD])[0])
             min_common = int(q.get("min_common", [DEFAULT_MIN_COMMON])[0])
-            matches = search.owner_search(self.nestor.conn, sess[0], pid, max_gd=max_gd, min_common=min_common)
+            excluded = q.get("excluded", [""])[0]
+            matches = search.owner_search(self.nestor.conn, sess[0], pid, max_gd=max_gd, min_common=min_common,
+                                          excluded_loci=self._excluded_list(excluded))
         except (ValueError, search.SearchError) as e:
             return self._error(str(e), sess)
         content = (f'<div class="card"><h2>Совпадения</h2>'
                    f'<form method="get"><p>GD ≤ <input type="text" name="max_gd" value="{max_gd}" size="3"> '
-                   f'сравнено ≥ <input type="text" name="min_common" value="{min_common}" size="3"> <button>Обновить</button></p></form>'
+                   f'сравнено (вошло в GD) ≥ <input type="text" name="min_common" value="{min_common}" size="3"> '
+                   f'исключить локусы <input type="text" name="excluded" value="{esc(excluded)}" size="25"> '
+                   f'<button>Обновить</button></p></form>{self._legend()}'
                    f'{self._match_table(matches, contact_csrf=sess[1])}</div>')
         self._page("Совпадения", content, sess)

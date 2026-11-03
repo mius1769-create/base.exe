@@ -38,7 +38,7 @@ class OwnerProfileView:
     ancestor_text: str | None
     ancestor_visibility: str
     created_at: str
-    markers: dict[str, tuple[float, ...]]
+    markers: dict  # {локус: кортеж | None (нет значения) | Invalid (не распознано)}
 
 
 def _clean_text(value: str | None, field: str) -> str | None:
@@ -81,8 +81,8 @@ def create_profile(
         raise ProfileError("укажите основание загрузки: свой тест или тест другого человека с его разрешения")
     if not consent_confirmed:
         raise ProfileError("необходимо подтвердить право на загрузку профиля")
-    if not markers:
-        raise ProfileError("в профиле нет маркеров")
+    if not any(mk.is_observed(v) for v in markers.values()):
+        raise ProfileError("в профиле нет ни одного маркера со значением")
     _check_visibility(nickname_visibility)
     _check_visibility(ancestor_visibility)
     with Tx(conn):
@@ -100,8 +100,8 @@ def create_profile(
         )
         pid = int(cur.lastrowid)
         conn.executemany(
-            "INSERT INTO profile_markers(profile_id, marker, value) VALUES (?,?,?)",
-            [(pid, name, mk.to_storage(v)) for name, v in markers.items()],
+            "INSERT INTO profile_markers(profile_id, marker, value, status) VALUES (?,?,?,?)",
+            [(pid, name, *mk.to_storage(v)) for name, v in markers.items()],
         )
         conn.execute(
             "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'upload', ?)",
@@ -119,9 +119,9 @@ def _owned_row(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) ->
     return row
 
 
-def load_markers(conn: sqlite3.Connection, profile_id: int) -> dict[str, tuple[float, ...]]:
-    rows = conn.execute("SELECT marker, value FROM profile_markers WHERE profile_id = ?", (profile_id,))
-    return {r["marker"]: mk.from_storage(r["value"]) for r in rows}
+def load_markers(conn: sqlite3.Connection, profile_id: int) -> dict:
+    rows = conn.execute("SELECT marker, value, status FROM profile_markers WHERE profile_id = ?", (profile_id,))
+    return {r["marker"]: mk.from_storage(r["value"], r["status"]) for r in rows}
 
 
 def get_owned(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> OwnerProfileView:
@@ -228,5 +228,7 @@ def export_owner_profile(conn: sqlite3.Connection, owner_user_id: int, profile_i
         "nickname_visibility": p.nickname_visibility,
         "ancestor": p.ancestor_text,
         "ancestor_visibility": p.ancestor_visibility,
-        "markers": {k: mk.format_value(v) for k, v in sorted(p.markers.items())},
+        "markers": {k: mk.format_value(v) for k, v in sorted(p.markers.items()) if mk.is_observed(v)},
+        "markers_without_value": sorted(k for k, v in p.markers.items() if v is None),
+        "markers_unrecognized": {k: str(v) for k, v in sorted(p.markers.items()) if isinstance(v, mk.Invalid)},
     }

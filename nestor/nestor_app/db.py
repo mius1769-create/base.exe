@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -62,7 +62,8 @@ CREATE INDEX IF NOT EXISTS ix_profiles_searchable ON profiles(searchable);
 CREATE TABLE IF NOT EXISTS profile_markers (
     profile_id  INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     marker      TEXT NOT NULL,
-    value       TEXT NOT NULL,                             -- '13' или '11-14'
+    value       TEXT NOT NULL,                             -- '13', '11-14'; '' (нет значения); исходная строка (не распознано)
+    status      TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','missing','invalid')),
     PRIMARY KEY (profile_id, marker)
 );
 
@@ -104,6 +105,10 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(profile_markers)")}
+    if "status" not in cols:  # миграция v1 → v2: позиции без значения / нераспознанные
+        conn.execute("ALTER TABLE profile_markers ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'")
+    conn.execute("INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     conn.execute(
         "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
         (str(SCHEMA_VERSION),),
