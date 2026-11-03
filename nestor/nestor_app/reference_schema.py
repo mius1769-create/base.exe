@@ -77,6 +77,17 @@ CREATE TABLE IF NOT EXISTS record_annotations (
     FOREIGN KEY (source_id, record_key) REFERENCES raw_records(source_id, record_key)
 );
 
+-- Смысл обозначений первичных таблиц (del, *, ** и т.п.); сами обозначения
+-- остаются в raw_records как есть.
+CREATE TABLE IF NOT EXISTS value_codes (
+    source_id   TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    meaning     TEXT NOT NULL,
+    basis       TEXT NOT NULL,
+    confirmed_by_primary INTEGER NOT NULL DEFAULT 0 CHECK (confirmed_by_primary IN (0,1)),
+    PRIMARY KEY (source_id, code)
+);
+
 CREATE TABLE IF NOT EXISTS qc_findings (
     id          INTEGER PRIMARY KEY,
     check_code  TEXT NOT NULL,

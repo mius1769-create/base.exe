@@ -80,7 +80,13 @@ def render() -> str:
             L.append(f"* **Происхождение и состав:** {pv['statement']}")
             for e in pv["evidence"]:
                 L.append(f"  * [{e['kind']}]({e['url']}): {e['text']}")
+            if pv.get("group_totals"):
+                g = pv["group_totals"]
+                L.append("  * Численность групп (" + g["basis"] + "): "
+                         + ", ".join(f"{k} {v}" for k, v in g["counts"].items()) + f"; всего {g['total']}. {g['level']}.")
             L.append(f"  * Построчная сверка: {pv['row_level_reconciliation']}")
+        if s.get("catalog_level"):
+            L.append(f"* **Уровень каталога:** {s['catalog_level']['statement']} ([Data.gov]({s['catalog_level']['url']}))")
         L.append(f"* **Условия набора:** {d['dataset_terms']['statement']}")
         for e in d["dataset_terms"].get("evidence", []):
             L.append(f"  * [{e['kind']}]({e['url']}): {e['text']}")

@@ -1,0 +1,26 @@
+{
+  "note": "Обозначения в первичных таблицах. В сырой записи хранятся как есть; здесь — их смысл и основание. Используются только при сравнении и будущих правилах преобразования.",
+  "codes": [
+    {
+      "source": "Scientific_NIST1032_UAS24",
+      "code": "del",
+      "meaning": "вызов «deletion» для локуса: аллель не наблюдается (делеция), а не отсутствие типирования",
+      "basis": "source_metadata.notes кандидата: «Allele calls marked del … del call count=6; source workbook preserves exact deletion labels»; формулировку сверить с легендой Table S4",
+      "confirmed_by_primary": false
+    },
+    {
+      "source": "Scientific_NIST1032_UAS24",
+      "code": "*",
+      "meaning": "пометка мутации DYS481 (связана с примечанием о парах отец–сын)",
+      "basis": "source_metadata.notes кандидата: «Source notes about father-son pairs, DYS481 mutation (*)»; сверить с легендой Table S4",
+      "confirmed_by_primary": false
+    },
+    {
+      "source": "Scientific_NIST1032_UAS24",
+      "code": "**",
+      "meaning": "пометка к вызову DYS456",
+      "basis": "source_metadata.notes кандидата: «DYS456 call (**)»; точный смысл — по легенде Table S4",
+      "confirmed_by_primary": false
+    }
+  ]
+}

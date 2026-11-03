@@ -59,6 +59,18 @@ class TestSourceAudit(unittest.TestCase):
         self.assertFalse(terms["confirmed"])
         self.assertIn("лицензия статьи", terms["statement"])
         self.assertEqual(nist["decision"], "ждём подтверждения")
+        g = nist["provenance"]["group_totals"]
+        self.assertEqual(g["counts"], {"African American": 341, "Asian": 96, "Caucasian": 359, "Hispanic": 236})
+        self.assertEqual(sum(g["counts"].values()), g["total"])
+        self.assertEqual(g["total"], nist["records"])
+        self.assertIn("1036", nist["catalog_level"]["statement"])
+
+    def test_value_codes_documented_separately(self):
+        codes = json.loads((ROOT / "data" / "value_codes.json").read_text(encoding="utf-8"))["codes"]
+        nist = {c["code"] for c in codes if "NIST" in c["source"]}
+        self.assertEqual(nist, {"del", "*", "**"})
+        for c in codes:
+            self.assertTrue(c["meaning"] and c["basis"])
 
     def test_transform_rules_have_basis_and_are_not_applied(self):
         ids = [r["rule_id"] for r in RULES["rules"]]

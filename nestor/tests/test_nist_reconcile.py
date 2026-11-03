@@ -95,8 +95,8 @@ class TestNistReconcile(unittest.TestCase):
         self.assertEqual(summary["ids"]["only_candidate"], ["S9"])
         self.assertEqual(summary["ids"]["only_table_s4"], ["S4"])
         diffs = summary["candidate_vs_s4"]["differences_by_locus"]
-        self.assertEqual(diffs, {"DYS19": 1, "Y-GATA-H4": 1})
-        self.assertIn("нечисловое значение в S4: del", summary["candidate_vs_s4"]["difference_kinds"])
+        self.assertEqual(diffs, {"DYS19": 1})  # del в S4 ≠ расхождение значения
+        self.assertEqual(summary["candidate_vs_s4"]["del_in_s4_absent_in_candidate"], {"Y-GATA-H4": 1})
         self.assertEqual(summary["s4_vs_pdr"]["differences_by_locus"], {})
         # метки — из PDR как записаны, с происхождением, только для записей кандидата
         self.assertEqual(summary["groups"]["origin"], "pdr")
@@ -122,3 +122,53 @@ class TestNistReconcile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSourceCodes(unittest.TestCase):
+    def test_split_codes_for_comparison_only(self):
+        self.assertEqual(nist_reconcile.split_codes("23*"), ("23", ["*"]))
+        self.assertEqual(nist_reconcile.split_codes("16**"), ("16", ["**"]))
+        self.assertEqual(nist_reconcile.split_codes("del"), ("", ["del"]))
+        self.assertEqual(nist_reconcile.split_codes("DEL"), ("", ["del"]))
+        self.assertEqual(nist_reconcile.split_codes("12"), ("12", []))
+        self.assertEqual(nist_reconcile.split_codes("11,14"), ("11,14", []))
+        self.assertEqual(nist_reconcile.split_codes("n/a"), ("", ["?n/a"]))
+
+    def test_raw_record_keeps_codes_verbatim(self):
+        rec = {"Sample ID": "S1", "DYS481": "23*", "DYS456": "16**", "DYS19": "del", "DYS390": ""}
+        cols = {"DYS481": "DYS481", "DYS456": "DYS456", "DYS19": "DYS19", "DYS390": "DYS390"}
+        self.assertEqual(nist_reconcile.raw_record_from_row(rec, cols),
+                         {"DYS481": "23*", "DYS456": "16**", "DYS19": "del"})
+
+    def test_codes_reported_and_del_explained(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cand = d / "c.db"
+            make_db(cand, [("NIST1032|A", "NIST", {"DYS481": [23], "DYS456": [16]}),
+                           ("NIST1032|B", "NIST", {"DYS481": [22]})], [("NIST", "t", 2)])
+            s4 = d / "s4.xlsx"
+            write_xlsx(s4, [["Sample ID", "Group", "DYS481", "DYS456"],
+                            ["A", "Asian", "23*", "16**"],
+                            ["B", "Hispanic", 22, "del"]])
+            before = sha256_file(s4)
+            summary, labels = nist_reconcile.reconcile(cand, s4, None, "Sample ID", "Group",
+                                                       expected_groups={"Asian": 1, "Hispanic": 1})
+            self.assertEqual(sha256_file(s4), before)
+            self.assertEqual(summary["candidate_vs_s4"]["differences_by_locus"], {})
+            codes = {(x["code"], x["locus"]): x["count"] for x in summary["source_codes_in_s4"]}
+            self.assertEqual(codes, {("*", "DYS481"): 1, ("**", "DYS456"): 1, ("del", "DYS456"): 1})
+            self.assertEqual(summary["candidate_vs_s4"]["del_in_s4_absent_in_candidate"], {"DYS456": 1})
+            self.assertTrue(summary["groups"]["primary_table_matches_article"])
+            self.assertTrue(summary["groups"]["candidate_labels_match_article"])
+
+    def test_group_mismatch_is_reported_not_forced(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            cand = d / "c.db"
+            make_db(cand, [("NIST1032|A", "NIST", {"DYS19": [14]})], [("NIST", "t", 1)])
+            s4 = d / "s4.xlsx"
+            write_xlsx(s4, [["Sample ID", "Group", "DYS19"], ["A", "Asian", 14], ["Z", "Asian", 15]])
+            summary, labels = nist_reconcile.reconcile(cand, s4, None, "Sample ID", "Group",
+                                                       expected_groups={"Asian": 1})
+            self.assertFalse(summary["groups"]["primary_table_matches_article"])
+            self.assertEqual([x["record_key"] for x in labels], ["NIST1032|A"])  # только сопоставленные по ID
