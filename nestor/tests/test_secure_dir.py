@@ -93,7 +93,7 @@ class TestWindows(unittest.TestCase):
     def test_prepare_restricts_to_user_and_system(self):
         d = Path(self.tmp.name) / "staging"
         chk = secure_dir.prepare_private_dir(d)
-        self.assertTrue(chk.ok, chk.problems)
+        self.assertTrue(chk.ok, f"{chk.problems}\n{secure_dir.windows_acl_text(d)}")
         user = secure_dir._windows_user_sid()
         self.assertTrue(set(chk.principals) <= {user, secure_dir.SYSTEM_SID}, chk.principals)
         self.assertIn(user, chk.principals)
@@ -109,7 +109,8 @@ class TestWindows(unittest.TestCase):
 
     def test_granting_builtin_users_is_detected(self):
         d = Path(self.tmp.name) / "staging"
-        self.assertTrue(secure_dir.prepare_private_dir(d).ok)
+        chk = secure_dir.prepare_private_dir(d)
+        self.assertTrue(chk.ok, f"{chk.problems}\n{secure_dir.windows_acl_text(d)}")
         subprocess.run(["icacls", str(d), "/grant", "*S-1-5-32-545:(OI)(CI)R"], check=True, capture_output=True)
         chk = secure_dir.verify_private_dir(d)
         self.assertFalse(chk.ok)

@@ -6,10 +6,12 @@ st_uid и отсутствие битов группы/остальных.
 Windows: chmod не задаёт ACL, поэтому:
   1. каталог по умолчанию — внутри локального профиля пользователя
      (%LOCALAPPDATA%\\NeSToR\\staging, см. config);
-  2. ACL задаётся явно: наследование отключено, разрешения только текущему
-     пользователю (по SID) и SYSTEM (S-1-5-18):
-        icacls <каталог> /inheritance:r /grant:r *<SID пользователя>:(OI)(CI)F *S-1-5-18:(OI)(CI)F
-     SID используются вместо имён — проверка не зависит от языка Windows;
+  2. DACL задаётся целиком через Win32 SetNamedSecurityInfoW из SDDL
+        D:P(A;OICI;FA;;;<SID пользователя>)(A;OICI;FA;;;SY)
+     — защищённый (наследование отключено), только текущий пользователь и SYSTEM.
+     icacls /inheritance:r /grant:r для этого не годится: проверка на windows-latest
+     показала, что после него остаются разрешения Administrators и OWNER RIGHTS.
+     SID используются вместо имён — не зависит от языка Windows;
   3. ACL читается обратно через Win32 API (GetNamedSecurityInfoW) и проверяется:
      DACL не NULL, наследование отключено (SE_DACL_PROTECTED), каждый
      разрешающий ACE выдан только текущему пользователю или SYSTEM.
@@ -85,8 +87,19 @@ def _windows_read_dacl(path: Path) -> tuple[list[tuple[int, str]] | None, bool]:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     SE_FILE_OBJECT, DACL_SECURITY_INFORMATION = 1, 0x4
 
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+    advapi32.GetSecurityDescriptorControl.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(wintypes.WORD), ctypes.POINTER(wintypes.DWORD)]
+    advapi32.GetAclInformation.argtypes = [ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.c_int]
+    advapi32.GetAce.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+
     p_dacl, p_sd = ctypes.c_void_p(), ctypes.c_void_p()
-    rc = advapi32.GetNamedSecurityInfoW(ctypes.c_wchar_p(str(path)), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+    rc = advapi32.GetNamedSecurityInfoW(str(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                                         None, None, ctypes.byref(p_dacl), None, ctypes.byref(p_sd))
     if rc != 0:
         raise OSError(rc, "GetNamedSecurityInfoW")
@@ -118,20 +131,59 @@ def _windows_read_dacl(path: Path) -> tuple[list[tuple[int, str]] | None, bool]:
             else:                              # объектные/callback ACE: SID не по фиксированному смещению
                 aces.append((header.AceType, "<нестандартный ACE>"))
                 continue
-            s = ctypes.c_wchar_p()
+            s = wintypes.LPWSTR()
             if not advapi32.ConvertSidToStringSidW(p_sid, ctypes.byref(s)):
                 raise ctypes.WinError(ctypes.get_last_error())
             aces.append((header.AceType, s.value))
-            kernel32.LocalFree(s)
+            kernel32.LocalFree(ctypes.cast(s, ctypes.c_void_p))
         return aces, protected
     finally:
         kernel32.LocalFree(p_sd)
 
 
 def _windows_harden(path: Path, user_sid: str) -> None:
-    subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r",
-                    f"*{user_sid}:(OI)(CI)F", f"*{SYSTEM_SID}:(OI)(CI)F"],
-                   capture_output=True, text=True, check=True)
+    """Записать защищённый DACL: полный доступ только пользователю и SYSTEM, наследование отключено."""
+    import ctypes
+    from ctypes import wintypes
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wintypes.BOOL
+    advapi32.GetSecurityDescriptorDacl.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
+    advapi32.GetSecurityDescriptorDacl.restype = wintypes.BOOL
+    advapi32.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    advapi32.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+
+    sddl = f"D:P(A;OICI;FA;;;{user_sid})(A;OICI;FA;;;SY)"
+    sd = ctypes.c_void_p()
+    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, ctypes.byref(sd), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        present, defaulted, dacl = wintypes.BOOL(), wintypes.BOOL(), ctypes.c_void_p()
+        if not advapi32.GetSecurityDescriptorDacl(sd, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        SE_FILE_OBJECT = 1
+        DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION = 0x4, 0x80000000
+        rc = advapi32.SetNamedSecurityInfoW(str(path), SE_FILE_OBJECT,
+                                            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                                            None, None, dacl, None)
+        if rc != 0:
+            raise OSError(rc, "SetNamedSecurityInfoW")
+    finally:
+        kernel32.LocalFree(sd)
+
+
+def windows_acl_text(path: Path) -> str:
+    """Вывод icacls — только для диагностики в сообщениях об ошибке."""
+    try:
+        return subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
+    except OSError as e:
+        return str(e)
 
 
 # ---------- общий вход ----------
