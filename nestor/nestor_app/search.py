@@ -44,6 +44,7 @@ class PublicMatch:
     common: int
     nickname: str | None
     ancestor: str | None
+    preliminary: bool = False  # есть дробные различия без перевода в шаги (T18)
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None):
                 handle=row["public_handle"], gd=res.gd, common=res.common,
                 nickname=pr.visible_field(row["nickname"], row["nickname_visibility"], viewer),
                 ancestor=pr.visible_field(row["ancestor_text"], row["ancestor_visibility"], viewer),
+                preliminary=res.preliminary,
             ))
     return out
 

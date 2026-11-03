@@ -25,7 +25,8 @@ BASE_Y37: dict[str, tuple[float, ...]] = {
 }
 assert set(BASE_Y37) == set(panels.PANELS["FTDNA_Y37"].marker_names)
 
-SINGLE_COPY = [m for m, v in BASE_Y37.items() if len(v) == 1]
+# DYS389I исключён: по T16 его изменение меняет и производный DYS389B (2 шага за одну мутацию).
+SINGLE_COPY = [m for m, v in BASE_Y37.items() if len(v) == 1 and m != "DYS389I"]
 
 
 def mutate(base: dict, steps: int, rng: random.Random) -> dict:

@@ -279,7 +279,8 @@ Y700 не поддерживается.</p></div>"""
                            f'<input type="hidden" name="handle" value="{esc(m.handle)}">'
                            f'<input type="text" name="message" placeholder="сообщение владельцу" required>'
                            f'<button>Запросить связь</button></form>')
-            rows.append(f"<tr><td>{esc(m.handle)}</td><td>{m.gd}</td><td>{m.common}</td>"
+            gd = f"{m.gd} (предварительно)" if m.preliminary else str(m.gd)
+            rows.append(f"<tr><td>{esc(m.handle)}</td><td>{gd}</td><td>{m.common}</td>"
                         f"<td>{esc(m.nickname) or '—'}</td><td>{esc(m.ancestor) or '—'}</td><td>{contact}</td></tr>")
         return ("<table><tr><th>Профиль</th><th>GD</th><th>Общих маркеров</th><th>Никнейм</th>"
                 "<th>Дальний предок</th><th></th></tr>" + "".join(rows) + "</table>")

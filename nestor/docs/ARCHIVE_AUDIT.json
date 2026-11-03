@@ -284,5 +284,278 @@
       }
     }
   ],
-  "note": "Сводка tools/audit_archive.py. Архив распакован вне репозитория (scratchpad), код не исполнялся, базы не импортировались."
+  "note": "Сводка tools/audit_archive.py. Архив распакован вне репозитория (scratchpad), код не исполнялся, базы не импортировались.",
+  "archive_scientific_sources": [
+    {
+      "source_id": "behar2017",
+      "records": 85,
+      "title": "The genetic variation in the R1a clade among the Ashkenazi Levites’ Y chromosome",
+      "doi": "",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "nist2022",
+      "records": 1032,
+      "title": "A multi-dimensional evaluation of the ‘NIST 1032’ sample set across four forensic Y-STR multiplexes",
+      "doi": "",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "NIST open licence",
+      "nestor_status": "сверено с кандидатом и Table S4: совпадает полностью (1 032)"
+    },
+    {
+      "source_id": "maniot2026",
+      "records": 12722,
+      "title": "Uniparental analysis of Deep Maniot Greeks reveals genetic continuity from the pre-Medieval era",
+      "doi": "",
+      "archive_use_status": "primary_sources_review_required",
+      "archive_license_note": "Article CC BY 4.0; pooled third-party rows require source review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "volgaoka2025",
+      "records": 181,
+      "title": "Pre-Slavic and Slavic Interaction at Eastern Periphery of Slavic Expansion in Northeastern Europe (Y-Gene Pools of Volga-Oka Region)",
+      "doi": "10.3390/genes16101149",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "russian2021",
+      "records": 691,
+      "title": "Population genetic data and forensic parameters of the 27 Y-STR panel Yfiler® Plus in Russian population",
+      "doi": "10.1007/s00414-021-02599-8",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Reuse terms require publisher/source review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "g1_2015",
+      "records": 141,
+      "title": "Deep Phylogenetic Analysis of Haplogroup G1",
+      "doi": "10.1371/journal.pone.0122968",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "tuvaQR2026",
+      "records": 202,
+      "title": "Yeniseian and Andronovo Substrates, Q and R1a",
+      "doi": "10.3390/genes17080896",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Article/supplement reuse verification pending",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "mordovia2024",
+      "records": 36,
+      "title": "Генофонд Урало-Поволжья: N3a1-Y23475",
+      "doi": "10.24075/vrgmu.2024.066",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "turkmen2024",
+      "records": 100,
+      "title": "Genetic Polymorphism of Y-Chromosome in Turkmen Population",
+      "doi": "10.3390/genes15121501",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "g2012",
+      "records": 554,
+      "title": "Distinguishing the co-ancestries of haplogroup G Y-chromosomes in the populations of Europe and the Caucasus",
+      "doi": "10.1038/ejhg.2012.86",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Reuse terms require publisher/source review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "kazakh2020",
+      "records": 115,
+      "title": "The medieval Mongolian roots of lineages from South Kazakhstan",
+      "doi": "10.1186/s12863-020-00897-5",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "r1a2015",
+      "records": 1001,
+      "title": "The phylogenetic and geographic structure of Y-chromosome haplogroup R1a",
+      "doi": "10.1038/ejhg.2014.50",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Reuse terms require publisher/source review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "tuvaQR2026_ancient",
+      "records": 44,
+      "title": "Q/R1a 2026: ancient literature profiles, S4",
+      "doi": "10.3390/genes17080896",
+      "archive_use_status": "primary_sources_review_required",
+      "archive_license_note": "Article/supplement reuse verification pending",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "tuvaQR2026_literature",
+      "records": 59,
+      "title": "Q/R1a 2026: modern literature profiles, S6",
+      "doi": "10.3390/genes17080896",
+      "archive_use_status": "primary_sources_review_required",
+      "archive_license_note": "Article/supplement reuse verification pending",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "tuvaNO2026_literature",
+      "records": 12,
+      "title": "N/O Tuva 2026: modern literature profiles, S1",
+      "doi": "10.70322/natanthropol.2026.10010",
+      "archive_use_status": "primary_sources_review_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "kharkov_stepanov_koryak2024",
+      "records": 62,
+      "title": "Палеоазиатский субстрат в генофонде коряков по данным о полиморфизме аутосомных SNP и гаплогруппам Y-хромосомы",
+      "doi": "10.31857/S0016675824060088",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Publicly downloadable supplement; licence for reuse of dataset content not established. Metadata CC0 is not assumed to cover the dataset.",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "mustafin_yaroslavl_grave76_2022",
+      "records": 7,
+      "title": "Палеогенетическая экспертиза останков из одного массового захоронения 1238 года в Ярославле",
+      "doi": "10.25681/IARAS.2022.978-5-94375-367-1.107-119",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "No explicit dataset reuse licence established; book copyright IA RAN and authors 2022",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "mustafin_yaroslavl_graves9_110_2022",
+      "records": 14,
+      "title": "Палеогенетическая экспертиза останков из двух наиболее крупных массовых захоронений 1238 г. в Ярославском детинце",
+      "doi": "10.24852/pa2022.2.40.215.230",
+      "archive_use_status": "attribution_and_sharealike_review_required",
+      "archive_license_note": "Publisher article CC BY-SA 4.0; attribution/share-alike applicability to redistribution requires review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "alborova_mustafin_moscow2021",
+      "records": 2,
+      "title": "Палеогенетический анализ жителей Подола Московского Кремля XIV в. по археологическим материалам",
+      "doi": "10.15688/jvolsu4.2021.5.3",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Public publisher PDF; dataset reuse licence not independently established",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "mustafin_radonezh2018",
+      "records": 1,
+      "title": "Haplogroup Analysis for a Medieval Russian Burial of 16th–17th Centuries in Radonezh (Moscow Area)",
+      "doi": "10.21638/spbu19.2018.209",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Public publisher PDF; dataset reuse licence not independently established",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "veselovskaya_mustafin_tolyon2024",
+      "records": 1,
+      "title": "Антропология и генетика погребения № 93 Тольёнского могильника в Удмуртии (поломская культура)",
+      "doi": "10.31857/S0016675824060096",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Public full-text HTML; CC0 metadata notice not assumed to license article/dataset content",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "engovatova_mustafin_fatyanovo2022",
+      "records": 7,
+      "title": "Новые данные по фатьяновской культуре: анализ древней ДНК в погребениях Волосово-Даниловского могильника",
+      "doi": "10.55086/SL22115128",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Publisher explicitly offers free PDF; free access not treated as a dataset redistribution licence",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "purps2014",
+      "records": 19630,
+      "title": "A global analysis of Y-chromosomal haplotype diversity for 23 STR loci",
+      "doi": "10.1016/j.fsigen.2014.04.008",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "Article CC BY 3.0; university curator explicitly publishes original research table and identifies source",
+      "nestor_status": "сверено с кандидатом: совпадает полностью (19 630)"
+    },
+    {
+      "source_id": "heraclides_cyprus2017",
+      "records": 344,
+      "title": "Y-chromosomal analysis of Greek Cypriots",
+      "doi": "10.1371/journal.pone.0179474",
+      "archive_use_status": "attribution_required",
+      "archive_license_note": "CC BY 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "thailand_tak_ranong2024",
+      "records": 311,
+      "title": "Y-STR Profiles and Y-Haplogroups of 327 Samples from Tak and Ranong, Thailand",
+      "doi": "10.5281/zenodo.14195042",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Reuse licence requires review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "kabaev_klyazma2022",
+      "records": 2,
+      "title": "Данные археологических ДНК XII-XIV веков с древних клязьминских поселений",
+      "doi": "10.7256/2585-7797.2022.3.38562",
+      "archive_use_status": "noncommercial_only_commercial_permission_required",
+      "archive_license_note": "CC BY-NC 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "sirotin_mustafin_crimea2019",
+      "records": 3,
+      "title": "Два необычных захоронения эпохи позднего Средневековья в Бахчисарайском районе Республики Крым",
+      "doi": "",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Public Institute of Archaeology RAS PDF; data redistribution licence not independently established",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "semenov_klyazma2023",
+      "records": 0,
+      "title": "Данные о древней ДНК с территории клязьминских поселений XII века. Часть 2",
+      "doi": "10.7256/2585-7797.2023.4.68943",
+      "archive_use_status": "noncommercial_only_commercial_permission_required",
+      "archive_license_note": "CC BY-NC 4.0",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "adamov_balanovska2026",
+      "records": 4,
+      "title": "Modern descendants of Kyordyughen warrior (Yakutia, 4200 years before present) in populations of Far East",
+      "doi": "10.1038/s10038-026-01459-w",
+      "archive_use_status": "permission_review_required",
+      "archive_license_note": "Reuse licence requires review",
+      "nestor_status": "не проверено"
+    },
+    {
+      "source_id": "user_scientific_since_20261008",
+      "records": 8026,
+      "title": "Since",
+      "doi": "",
+      "archive_use_status": "primary_sources_review_required",
+      "archive_license_note": "",
+      "nestor_status": "не проверено; не включать в основной справочник без отдельной сверки (пересечения с Roewer 2008 и Balanovsky 2011)"
+    }
+  ],
+  "unverified_sources_count": 28
 }

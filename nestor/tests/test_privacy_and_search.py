@@ -116,7 +116,7 @@ class TestNoPrivateDataInResults(unittest.TestCase):
         self.assertNotIn("KIT", blob)
         self.assertNotIn("@example.test", blob)
         self.assertNotIn("SECRETKIT1", blob)
-        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "common", "nickname", "ancestor"})
+        self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "common", "nickname", "ancestor", "preliminary"})
         self.assertNotIn("kit_id_private", export)
 
     def test_field_visibility_guest_vs_registered(self):
@@ -227,7 +227,7 @@ class TestGuestSampling(unittest.TestCase):
         query = mk.normalize(vec["query"])
         key = guest_query_key(bytes.fromhex(vec["secret_hex"]), query, vec["max_gd"], vec["min_common"])
         self.assertEqual(key.hex(), vec["expected_key_hex"])
-        matches = [PublicMatch(h, gd, 30, None, None) for h, gd in vec["matches"]]
+        matches = [PublicMatch(h, gd, 30, None, None) for h, gd in vec["matches"]]  # preliminary=False
         self.assertEqual([m.handle for m in guest_sample(matches, key)], vec["expected_selection"])
 
 

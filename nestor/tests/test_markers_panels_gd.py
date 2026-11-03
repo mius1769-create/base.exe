@@ -72,18 +72,46 @@ class TestPanels(unittest.TestCase):
 class TestGD(unittest.TestCase):
     def test_identical_profiles(self):
         r = genetic_distance(BASE_Y37, dict(BASE_Y37))
-        self.assertEqual((r.gd, r.common), (0, 30))
+        # 30 локусов: DYS389II заменён производным DYS389B (T16)
+        self.assertEqual((r.gd, r.common, r.preliminary), (0, 30, False))
+        self.assertEqual(r.derived_loci, ("DYS389B",))
 
     def test_single_and_multi_copy_steps(self):
         other = dict(BASE_Y37)
-        other["DYS393"] = (15.0,)               # +2
-        other["DYS385"] = (11.0, 15.0)          # +1
-        other["DYS464"] = (15.0, 16.0, 17.0, 17.0)  # +1
+        other["DYS393"] = (15.0,)                    # +2
+        other["DYS385"] = (11.0, 15.0)               # +1
+        other["DYS464"] = (15.0, 16.0, 17.0, 17.0)   # +1
         self.assertEqual(genetic_distance(BASE_Y37, other).gd, 4)
 
-    def test_copy_number_difference_and_microvariant(self):
-        self.assertEqual(marker_distance((15.0, 15.0, 17.0, 17.0), (15.0, 15.0, 17.0, 17.0, 18.0)), 1)
-        self.assertEqual(marker_distance((12.0,), (12.1,)), 1)
+    def test_copy_order_not_fixed(self):
+        self.assertEqual(marker_distance((14.0, 11.0), (11.0, 14.0)), 0)
+
+    def test_dys389_uses_i_and_derived_b_not_ii(self):
+        a = {"DYS389I": (13.0,), "DYS389II": (29.0,)}
+        b = {"DYS389I": (13.0,), "DYS389II": (30.0,)}     # B: 16 против 17
+        r = genetic_distance(a, b)
+        self.assertEqual((r.gd, r.common), (1, 2))
+        self.assertNotIn("DYS389II", r.per_locus)
+        c = {"DYS389I": (14.0,), "DYS389II": (30.0,)}     # I +1, B тот же: 1 шаг, а не 2
+        self.assertEqual(genetic_distance(a, c).gd, 1)
+        self.assertEqual(a, {"DYS389I": (13.0,), "DYS389II": (29.0,)})  # исходные значения не тронуты
+        published_b = {"DYS389I": (13.0,), "DYS389B": (16.0,)}          # разность из источника
+        self.assertEqual(genetic_distance(a, published_b).gd, 0)
+
+    def test_copy_count_difference_excluded_but_counted(self):
+        a = {"DYS19": (14.0,), "DYS464": (15.0, 15.0, 17.0, 17.0), "DYF404S1": (12.0,)}
+        b = {"DYS19": (14.0,), "DYS464": (15.0, 15.0, 17.0, 17.0, 18.0), "DYF404S1": (12.0, 15.0)}
+        r = genetic_distance(a, b)
+        self.assertEqual((r.gd, r.common), (0, 3))      # без +1, но локусы сравнимы
+        self.assertEqual(set(r.copy_count_differences), {("DYS464", 4, 5), ("DYF404S1", 1, 2)})
+        self.assertIsNone(marker_distance((15.0, 15.0, 17.0, 17.0), (15.0, 15.0, 17.0, 17.0, 18.0)))
+
+    def test_fractional_values_not_converted_to_steps(self):
+        self.assertEqual(marker_distance((12.1,), (12.1,)), 0)           # точное совпадение
+        self.assertIsNone(marker_distance((12.0,), (12.1,)))              # .1 — не 0,1 шага
+        r = genetic_distance({"DYS458": (17.2,), "DYS19": (14.0,)}, {"DYS458": (18.2,), "DYS19": (15.0,)})
+        self.assertEqual((r.gd, r.common, r.preliminary), (1, 2, True))
+        self.assertEqual(r.allele_differences, (("DYS458", (17.2,), (18.2,)),))
         self.assertEqual(marker_distance((12.0,), (14.0,)), 2)
 
     def test_only_common_markers_are_compared(self):

@@ -26,6 +26,8 @@ class TestReferenceRules(unittest.TestCase):
         self.assertEqual(raw["DYS518"], "33.200000000000003")
         self.assertEqual(p.rules_applied, ["T10-binary-float"])
         self.assertEqual(comparison_profile({"DYS456": "16.2"}).rules_applied, [])
+        self.assertEqual(comparison_profile({"DYS19": "14"}).rules_applied, [])
+        self.assertEqual(comparison_profile({"DYS458": "17.25"}).markers["DYS458"], (17.25,))  # без округления
 
     def test_annotation_codes_become_flags(self):
         p = comparison_profile({"DYS481": "24*", "DYS456": "16.2**", "DYS385": "15,17"})

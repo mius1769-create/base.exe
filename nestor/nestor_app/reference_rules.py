@@ -7,7 +7,8 @@
 Правила (data/transform_rules.json):
   T09-del-excluded       'del' хранится как есть; локус не участвует в сравнении,
                          пока смысл обозначения не подтверждён первично;
-  T10-binary-float       '33.200000000000003' → 33.2 только для сравнения;
+  T10-binary-float       '33.200000000000003' → 33.2 только для сравнения
+                         (то же двоичное число; дробная часть не округляется, T18);
   T11-annotation-codes   пометки '*' и '**' снимаются для сравнения числа,
                          но сохраняются как флаги локуса;
   T08-father-son         запись с father_son_substitution — не независимое
@@ -43,10 +44,10 @@ def _number(text: str) -> tuple[float, bool]:
     """Число для сравнения; второй элемент — была ли нормализована двоичная дробь."""
     if not _NUM.match(text):
         raise RawValueError(f"нечисловое значение: {text!r}")
-    # Y-STR-аллели имеют не больше одного знака после точки (микровариант .1–.3);
-    # более длинная дробь в строке — артефакт двоичного хранения xlsx.
-    normalized = "." in text and len(text.split(".", 1)[1]) > 1
-    return round(float(text), 1), normalized
+    # Нормализуется только техническое представление (T18): float('33.200000000000003')
+    # — то же двоичное число, что 33.2; округления нет, дробная часть сохраняется.
+    value = float(text)
+    return value, "." in text and repr(value) != text
 
 
 def comparison_profile(raw: dict[str, str], annotations: dict[str, str] | None = None) -> ComparisonProfile:

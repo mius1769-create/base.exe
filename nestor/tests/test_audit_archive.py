@@ -100,7 +100,18 @@ class TestRecordedArchiveAudit(unittest.TestCase):
     def test_preliminary_calibration_not_approved(self):
         rules = json.loads((ROOT / "data" / "transform_rules.json").read_text(encoding="utf-8"))["rules"]
         by_id = {r["rule_id"]: r for r in rules}
-        for rid in ("T12-genopoisk-y37-gatah4", "T13-genopoisk-y50-offsets", "T15-scientific-other-scale"):
+        for rid in ("T12-genopoisk-y37-gatah4", "T13-genopoisk-y50-offsets"):
             self.assertEqual(by_id[rid]["calibration"], "preliminary")
             self.assertEqual(by_id[rid]["status"], "proposed")
             self.assertIn("server.js", by_id[rid]["basis"])
+        self.assertEqual(by_id["T15-scientific-other-scale"]["status"], "approved")  # запрет универсальной поправки
+
+    def test_unverified_archive_sources_listed(self):
+        d = json.loads((ROOT / "docs" / "ARCHIVE_AUDIT.json").read_text(encoding="utf-8"))
+        rows = d["archive_scientific_sources"]
+        self.assertEqual(len(rows), 30)
+        unverified = [r for r in rows if r["nestor_status"].startswith("не проверено")]
+        self.assertEqual(len(unverified), 28)
+        self.assertEqual(d["unverified_sources_count"], 28)
+        since = next(r for r in rows if r["source_id"] == "user_scientific_since_20261008")
+        self.assertIn("не включать", since["nestor_status"])
