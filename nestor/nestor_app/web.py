@@ -14,7 +14,12 @@ from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import email.parser
+import email.policy
+
 from . import accounts, contacts, panels
+from . import importer as im
+from . import user_import as ui
 from . import markers as mk
 from . import profiles as pr
 from . import reference, search
@@ -23,6 +28,7 @@ from .db import connect
 
 SESSION_COOKIE = "nestor_session"
 MAX_BODY = 256 * 1024
+MAX_UPLOAD_BODY = im.MAX_FILE_BYTES + 256 * 1024
 
 VIS_LABELS = {"hidden": "скрыто", "registered": "только зарегистрированным", "public": "всем, включая гостей"}
 BASIS_LABELS = {"own_test": "мой собственный тест", "authorized_other": "тест другого человека, с его разрешения"}
@@ -88,11 +94,32 @@ class _Handler(BaseHTTPRequestHandler):
         return token, sess
 
     def _form(self) -> dict[str, str]:
+        """Поля формы (первое значение). Все значения — self.form_lists, файлы — self.files."""
+        self.form_lists, self.files = {}, {}
         length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
-            raise ValueError("слишком большой запрос")
-        body = self.rfile.read(length).decode("utf-8", errors="replace")
-        return {k: v[0] for k, v in parse_qs(body, keep_blank_values=True).items()}
+        ctype = self.headers.get("Content-Type") or ""
+        if ctype.startswith("multipart/form-data"):
+            if length > MAX_UPLOAD_BODY:
+                raise ValueError(f"файл больше {im.MAX_FILE_BYTES // (1024 * 1024)} МБ")
+            body = self.rfile.read(length)
+            msg = email.parser.BytesParser(policy=email.policy.default).parsebytes(
+                b"Content-Type: " + ctype.encode("latin-1") + b"\r\n\r\n" + body)
+            for part in msg.iter_parts():
+                name = part.get_param("name", header="content-disposition")
+                if not name:
+                    continue
+                filename = part.get_filename()
+                if filename is not None:
+                    self.files[name] = (filename, part.get_payload(decode=True) or b"")
+                else:
+                    value = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace")
+                    self.form_lists.setdefault(name, []).append(value)
+        else:
+            if length > MAX_BODY:
+                raise ValueError("слишком большой запрос")
+            body = self.rfile.read(length).decode("utf-8", errors="replace")
+            self.form_lists = parse_qs(body, keep_blank_values=True)
+        return {k: v[0] for k, v in self.form_lists.items()}
 
     def _same_origin(self) -> bool:
         origin = self.headers.get("Origin") or self.headers.get("Referer")
@@ -174,6 +201,11 @@ class _Handler(BaseHTTPRequestHandler):
             return self._me(sess)
         if path == "/profiles/new":
             return self._new_profile_form(sess)
+        if path == "/import":
+            return self._import_form(sess)
+        m = re.fullmatch(r"/import/(\d+)", path)
+        if m:
+            return self._import_preview(sess, int(m.group(1)))
         m = re.fullmatch(r"/profiles/(\d+)", path)
         if m:
             return self._profile_page(sess, int(m.group(1)))
@@ -216,6 +248,25 @@ class _Handler(BaseHTTPRequestHandler):
             return self._redirect("/", [("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")])
         if path == "/profiles/new":
             return self._create_profile(uid, form)
+        if path == "/import":
+            if "file" not in self.files:
+                raise ValueError("выберите файл CSV или XLSX")
+            filename, data = self.files["file"]
+            upload_id, _ = ui.stage(self.nestor.conn, uid, filename, data, form.get("panel", "AUTO"))
+            return self._redirect(f"/import/{upload_id}")
+        m = re.fullmatch(r"/import/(\d+)/(commit|discard)", path)
+        if m:
+            upload_id = int(m.group(1))
+            if m.group(2) == "discard":
+                ui.discard(self.nestor.conn, uid, upload_id)
+                return self._redirect("/me")
+            rows = []
+            for v in self.form_lists.get("row", []):
+                sheet, _, num = v.rpartition("|")
+                rows.append((sheet, int(num)))
+            ui.commit(self.nestor.conn, uid, upload_id, rows, consent_basis=form.get("consent_basis", ""),
+                      consent_confirmed=form.get("consent_confirmed") == "1")
+            return self._redirect("/me")
         m = re.fullmatch(r"/profiles/(\d+)/(searchable|visibility|delete)", path)
         if m:
             pid, action = int(m.group(1)), m.group(2)
@@ -380,7 +431,7 @@ Y700 не поддерживается.</p></div>"""
         for r in contacts.outgoing(self.nestor.conn, uid):
             out.append(f'<tr><td>{esc(r["public_handle"])}</td><td>{esc(r["status"])}</td>'
                        f'<td>{esc(r["owner_reply"]) or "—"}</td></tr>')
-        content = (f'<div class="card"><h2>Мои профили</h2>{table}<p><a href="/profiles/new">Загрузить профиль</a></p></div>'
+        content = (f'<div class="card"><h2>Мои профили</h2>{table}<p><a href="/profiles/new">Ввести профиль вручную</a> · <a href="/import">Импорт из файла CSV / XLSX</a></p></div>'
                    f'<div class="card"><h2>Входящие запросы на связь</h2>'
                    + (("<table><tr><th>Профиль</th><th>От</th><th>Сообщение</th><th>Статус</th><th></th></tr>"
                        + "".join(inc) + "</table>") if inc else '<p class="muted">Нет запросов.</p>')
@@ -394,6 +445,66 @@ Y700 не поддерживается.</p></div>"""
         opts = "".join(f'<option value="{k}"{" selected" if k == current else ""}>{v}</option>'
                        for k, v in VIS_LABELS.items())
         return f'<select name="{name}">{opts}</select>'
+
+    def _import_form(self, sess):
+        if not sess:
+            return self._redirect("/login")
+        self._page("Импорт из файла", f"""<div class="card"><h2>Импорт профилей из файла</h2>
+<form method="post" action="/import" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{esc(sess[1])}">
+<p>Файл CSV (разделитель <code>;</code>, <code>,</code> или TAB) или XLSX (все листы)<br>
+<input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx" required></p>
+<p>Панель {self._panel_select()}<br><span class="muted">Выбранная панель: локусы файла вне неё — ошибка листа.
+«Определить автоматически» — по заголовкам, только при надёжном совпадении; иначе — пользовательский набор.</span></p>
+<p class="muted">Файл сохраняется локально целиком (с SHA-256) и сначала показывается для проверки.
+Профили создаются только после подтверждения, закрытыми; записи не объединяются.
+Не более {im.MAX_FILE_BYTES // (1024 * 1024)} МБ и {im.MAX_ROWS} строк.</p>
+<button>Загрузить и проверить</button></form></div>""", sess)
+
+    def _import_preview(self, sess, upload_id):
+        if not sess:
+            return self._redirect("/login")
+        uid, csrf = sess
+        prev = ui.preview_of(self.nestor.conn, uid, upload_id)
+        summ = prev.summary()
+        sheet_rows = "".join(
+            f"<tr><td>{esc(sh['name'])}</td><td>{esc(panels.panel_label(sh['panel'] if sh['panel'] != 'custom' else None, sh['panel_basis']))}</td>"
+            f"<td>{esc(sh['header_row'])}</td><td>{sh['records']}</td><td>{sh['empty_rows']}</td>"
+            f"<td class='err'>{esc(sh['error'])}</td></tr>" for sh in summ["sheets"])
+        rows = []
+        for r in prev.records:
+            key = f"{r.sheet}|{r.row_number}"
+            chk = "" if not r.savable else " checked"
+            dis = " disabled" if not r.savable else ""
+            invalid = "; ".join(f"{k}: {v}" for k, v in r.invalid.items())
+            raw = "; ".join(f"{k}={v}" for k, v in r.raw.items())
+            rows.append(
+                f"<tr><td><input type='checkbox' name='row' value='{esc(key)}'{chk}{dis}></td>"
+                f"<td>{esc(r.sheet)}:{r.row_number}</td><td>{esc(r.record_id) or '—'}</td>"
+                f"<td>{r.observed} из {len(r.positions)}</td>"
+                f"<td>{len(r.missing)}{(': ' + esc(', '.join(r.missing))) if r.missing else ''}</td>"
+                f"<td>{esc(invalid) or '—'}</td>"
+                f"<td class='warn'>{esc('; '.join(r.flags)) or '—'}</td><td class='err'>{esc(r.error)}</td>"
+                f"<td><details><summary>ячейки</summary><code>{esc(raw)}</code></details></td></tr>")
+        basis = "".join(f'<label><input type="radio" name="consent_basis" value="{k}" required> {v}</label><br>'
+                        for k, v in BASIS_LABELS.items())
+        content = f"""<div class="card"><h2>Проверка файла {esc(prev.filename)}</h2>
+<p>SHA-256 <code>{esc(prev.sha256)}</code>, {prev.size} байт. Профилей: <b>{summ['records']}</b>,
+можно сохранить: {summ['savable']}, с пропусками: {summ['with_missing']}, с нераспознанными значениями:
+{summ['with_invalid']}, с пометками (повторы / совпадения): {summ['flagged']}.</p>
+<table><tr><th>Лист</th><th>Панель</th><th>Строка заголовков</th><th>Профилей</th><th>Пустых строк</th><th>Ошибка</th></tr>{sheet_rows}</table>
+<p class="muted">Повторы и совпадения только помечены: записи не объединяются, решаете вы.</p></div>
+<div class="card"><form method="post" action="/import/{upload_id}/commit">
+<input type="hidden" name="csrf" value="{esc(csrf)}">
+<table><tr><th></th><th>Лист:строка</th><th>ID</th><th>Значения</th><th>Без значения</th><th>Не распознано</th>
+<th>Пометки</th><th>Ошибка</th><th>Исходные ячейки</th></tr>{''.join(rows)}</table>
+<p><b>Чьи это тесты?</b><br>{basis}<label><input type="checkbox" name="consent_confirmed" value="1" required>
+Подтверждаю право загрузить выбранные профили.</label></p>
+<p class="muted">Профили будут созданы закрытыми; ID из файла сохранится как kit ID (виден только вам).</p>
+<button>Сохранить выбранные</button></form>
+<form method="post" action="/import/{upload_id}/discard"><input type="hidden" name="csrf" value="{esc(csrf)}">
+<button>Отменить и удалить файл</button></form></div>"""
+        self._page("Проверка импорта", content, sess)
 
     def _new_profile_form(self, sess):
         if not sess:
@@ -456,12 +567,24 @@ Y700 не поддерживается.</p></div>"""
 <p>Никнейм <input type="text" name="nickname" value="{esc(p.nickname)}" maxlength="200"> {self._vis_select("nickname_visibility", p.nickname_visibility)}</p>
 <p>Дальний предок <input type="text" name="ancestor_text" value="{esc(p.ancestor_text)}" maxlength="200"> {self._vis_select("ancestor_visibility", p.ancestor_visibility)}</p>
 <button>Сохранить</button></form></div>
+{self._source_block(pid)}
 <div class="card"><h3>Позиции профиля: {len(p.markers)}, со значением {n_ok}</h3><table>{marker_rows}</table></div>
 <div class="card"><h3>Удаление</h3><form method="post" action="/profiles/{pid}/delete">
 <input type="hidden" name="csrf" value="{esc(csrf)}"><label><input type="checkbox" name="confirm" value="1" required>
 Удалить профиль, маркеры, журнал согласий и запросы на связь без возможности восстановления</label>
 <button>Удалить</button></form></div>"""
         self._page(p.public_handle, content, sess)
+
+    def _source_block(self, pid) -> str:
+        src = pr.load_source(self.nestor.conn, pid)
+        if not src:
+            return ""
+        raw = json.loads(src["raw_json"])
+        cells = "".join(f"<tr><td>{esc(k)}</td><td><code>{esc(v)}</code></td></tr>" for k, v in raw.items())
+        return (f'<div class="card"><h3>Происхождение</h3><p>Файл {esc(src["filename"])}, SHA-256 '
+                f'<code>{esc(src["file_sha256"])}</code>, лист {esc(src["sheet"])}, строка {src["row_number"]}'
+                f'{", ID " + esc(src["record_id"]) if src["record_id"] else ""}.</p>'
+                f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details></div>')
 
     def _owner_matches(self, sess, pid):
         if not sess:

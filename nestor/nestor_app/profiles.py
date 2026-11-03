@@ -79,6 +79,8 @@ def create_profile(
     ancestor_text: str | None = None,
     ancestor_visibility: str = "hidden",
     panel_code: str | None = None,
+    panel_basis_override: str | None = None,
+    source: dict | None = None,
 ) -> int:
     """Создаёт профиль. Он всегда закрыт (searchable = 0) до явного включения владельцем.
 
@@ -90,6 +92,8 @@ def create_profile(
         markers, panel_code, panel_basis = pn.apply_panel(markers, panel_code)
     except (pn.PanelMismatch, pn.UnsupportedPanel) as e:
         raise ProfileError(str(e)) from None
+    if panel_basis_override:  # импорт: панель уже распознана по заголовкам файла
+        panel_basis = panel_basis_override
     if consent_basis not in CONSENT_BASES:
         raise ProfileError("укажите основание загрузки: свой тест или тест другого человека с его разрешения")
     if not consent_confirmed:
@@ -118,6 +122,13 @@ def create_profile(
             "INSERT INTO profile_markers(profile_id, marker, value, status) VALUES (?,?,?,?)",
             [(pid, name, *mk.to_storage(v)) for name, v in markers.items()],
         )
+        if source:
+            conn.execute(
+                """INSERT INTO profile_sources(profile_id, import_file_id, filename, file_sha256, sheet,
+                       row_number, record_id, raw_json) VALUES (?,?,?,?,?,?,?,?)""",
+                (pid, source.get("import_file_id"), source["filename"], source["file_sha256"], source["sheet"],
+                 source["row_number"], source.get("record_id"), source["raw_json"]),
+            )
         conn.execute(
             "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'upload', ?)",
             (pid, f"basis={consent_basis}; consent={CONSENT_TEXT_VERSION}; searchable=0; "
@@ -133,6 +144,11 @@ def _owned_row(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) ->
     if row is None:
         raise NotFound("профиль не найден")
     return row
+
+
+def load_source(conn: sqlite3.Connection, profile_id: int) -> dict | None:
+    row = conn.execute("SELECT * FROM profile_sources WHERE profile_id = ?", (profile_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def load_markers(conn: sqlite3.Connection, profile_id: int) -> dict:
@@ -200,13 +216,20 @@ def update_public_fields(
 
 
 def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> None:
-    """Полное удаление: профиль, маркеры, журнал согласий, запросы на связь (каскад).
+    """Полное удаление: профиль, маркеры, журнал согласий, запросы на связь, происхождение
+    из файла (каскад); исходный файл удаляется, если в нём не осталось других профилей.
 
     PRAGMA secure_delete затирает удалённые страницы в файле базы.
     """
     _owned_row(conn, owner_user_id, profile_id)
     with Tx(conn):
+        src = conn.execute("SELECT import_file_id FROM profile_sources WHERE profile_id = ?", (profile_id,)).fetchone()
         conn.execute("DELETE FROM profiles WHERE id = ? AND owner_user_id = ?", (profile_id, owner_user_id))
+        if src and src["import_file_id"] is not None:
+            left = conn.execute("SELECT COUNT(*) FROM profile_sources WHERE import_file_id = ?",
+                                (src["import_file_id"],)).fetchone()[0]
+            if left == 0:  # исходный файл больше не нужен ни одному профилю — удаляется
+                conn.execute("DELETE FROM import_files WHERE id = ?", (src["import_file_id"],))
 
 
 def iter_searchable(conn: sqlite3.Connection, exclude_owner: int | None = None):

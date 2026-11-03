@@ -150,7 +150,7 @@ class TestMigration(unittest.TestCase):
             conn = db.connect(path)
             row = conn.execute("SELECT value, status FROM profile_markers").fetchone()
             self.assertEqual(tuple(row), ("14", "ok"))
-            self.assertEqual(conn.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0], "3")
+            self.assertEqual(conn.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0], str(db.SCHEMA_VERSION))
             conn.close()
 
 

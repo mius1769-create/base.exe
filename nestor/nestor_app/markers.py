@@ -34,7 +34,7 @@ ALIASES = {
 
 _MISSING = {"", "0", "-", "—", "NA", "N/A", "NULL", "NONE", "?", "NAN"}
 _SUFFIX_RE = re.compile(r"^(.+?)[-_ ]?([A-D])$")
-_NUM_RE = re.compile(r"^\d{1,3}(\.\d)?$")
+_NUM_RE = re.compile(r"^\d{1,3}(\.\d+)?$")  # дробь любой длины: только техническое представление (T18)
 
 
 class MarkerError(ValueError):

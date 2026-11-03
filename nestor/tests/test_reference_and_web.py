@@ -1,4 +1,5 @@
 import http.cookiejar
+import re
 import json
 import sqlite3
 import tempfile
@@ -173,6 +174,42 @@ class TestWebSmoke(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get(owner, f"/profiles/{pid}")
         self.assertEqual(ctx.exception.code, 404)
+
+
+class TestWebImport(TestWebSmoke):
+    """Загрузка файла через интерфейс: просмотр → сохранение выбранной строки."""
+
+    def test_end_to_end(self):  # переопределяет сценарий базового класса
+        fixture = Path(__file__).resolve().parent / "fixtures" / "archive_examples" / "FTDNA-Y37.csv"
+        owner = self.client()
+        self.post(owner, "/register", {"email": "imp@example.test", "password": "password-123"})
+        _, form = self.get(owner, "/import")
+        self.assertIn('enctype="multipart/form-data"', form)
+        csrf = self.csrf(form)
+        boundary = "----nestorTestBoundary"
+        data = fixture.read_bytes()
+        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"csrf\"\r\n\r\n{csrf}\r\n"
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"panel\"\r\n\r\nAUTO\r\n"
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"FTDNA-Y37.csv\"\r\n"
+                f"Content-Type: text/csv\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+        req = urllib.request.Request(self.base + "/import", data=body, headers={
+            "Origin": self.base, "Content-Type": f"multipart/form-data; boundary={boundary}"})
+        with owner.open(req) as r:
+            url, page = r.geturl(), r.read().decode()
+        self.assertRegex(url, r"/import/\d+$")
+        self.assertIn("FTDNA Y37 (распознана)", page)
+        self.assertIn("Профилей: <b>1</b>", page)
+        import hashlib
+        self.assertIn(hashlib.sha256(data).hexdigest(), page)
+        upload = url.rsplit("/", 1)[1]
+        url, me = self.post(owner, f"/import/{upload}/commit", {
+            "csrf": self.csrf(page), "row": "CSV|2", "consent_basis": "own_test", "consent_confirmed": "1"})
+        self.assertTrue(url.endswith("/me"))
+        pid = re.search(r'href="/profiles/(\d+)"', me).group(1)
+        _, prof = self.get(owner, f"/profiles/{pid}")
+        self.assertIn("Происхождение", prof)
+        self.assertIn("строка 2", prof)
+        self.assertIn("закрыт", prof)
 
 
 if __name__ == "__main__":

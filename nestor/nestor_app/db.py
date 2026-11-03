@@ -14,7 +14,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -68,6 +68,32 @@ CREATE TABLE IF NOT EXISTS profile_markers (
     value       TEXT NOT NULL,                             -- '13', '11-14'; '' (нет значения); исходная строка (не распознано)
     status      TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','missing','invalid')),
     PRIMARY KEY (profile_id, marker)
+);
+
+-- Исходные файлы импорта владельца (хранятся целиком; удаляются вместе с аккаунтом,
+-- при отмене импорта и когда удалён последний профиль из файла).
+CREATE TABLE IF NOT EXISTS import_files (
+    id             INTEGER PRIMARY KEY,
+    owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    filename       TEXT NOT NULL,
+    sha256         TEXT NOT NULL,
+    size_bytes     INTEGER NOT NULL,
+    content        BLOB NOT NULL,
+    panel_choice   TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'staged' CHECK (status IN ('staged','committed')),
+    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+-- Происхождение профиля из файла: лист, строка и исходные ячейки дословно.
+CREATE TABLE IF NOT EXISTS profile_sources (
+    profile_id      INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+    import_file_id  INTEGER REFERENCES import_files(id) ON DELETE SET NULL,
+    filename        TEXT NOT NULL,
+    file_sha256     TEXT NOT NULL,
+    sheet           TEXT NOT NULL,
+    row_number      INTEGER NOT NULL,
+    record_id       TEXT,
+    raw_json        TEXT NOT NULL
 );
 
 -- Журнал согласий: загрузка, включение/выключение поиска, смена видимости.
