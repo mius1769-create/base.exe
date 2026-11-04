@@ -71,7 +71,8 @@ def _differences(m) -> str:
     table = (f'<table class="mini"><tr><th>Локус</th><th>Ваш профиль</th><th>Запись</th><th>Вклад</th></tr>{rows}</table>'
              if rows else '<p class="muted">Все сопоставленные позиции совпадают.</p>')
     nc = "; ".join(f"{k}: {v}" for k, v in m.not_compared.items())
-    return (f"<details><summary>Различия</summary><div class=\"drop\">{table}"
+    scale = f'<p class="note">{esc(m.scale_note)}</p>' if m.scale_note else ""
+    return (f"<details><summary>Различия</summary><div class=\"drop\">{scale}{table}"
             f"<p class=\"muted\">Сопоставлено {m.compared} из {m.panel_overlap} общих позиций."
             f"{' Не вошли в GD — ' + esc(nc) + '.' if nc else ''} Опубликованные значения источника показаны как есть; "
             "шкалы источников не откалиброваны, GD предварительный.</p></div></details>")
@@ -95,10 +96,11 @@ def matches_table(matches, summary: dict) -> str:
         kind = ("индивидуальная запись" if m.record_kind != "aggregated"
                 else f"агрегированное наблюдение, N={m.observed_n}")
         place = " · ".join(x for x in (m.country, m.population) if x and x != m.country) or (m.country or "—")
+        scale = '<div><span class="tag tag-warn">другая шкала H4?</span></div>' if m.scale_note else ""
         rows.append(
             f'<tr><td><b>{esc(m.sample_id)}</b><div class="sub">{esc(place)}</div>'
             f'<span class="tag{" tag-agg" if m.record_kind == "aggregated" else ""}">{esc(kind)}</span></td>'
-            f'<td><span class="{gd_class(m.gd)}">GD {m.gd}</span><div class="sub">(предварительно)</div>{_differences(m)}</td>'
+            f'<td><span class="{gd_class(m.gd)}">GD {m.gd}</span><div class="sub">(предварительно)</div>{scale}{_differences(m)}</td>'
             f'<td><b>{m.compared}</b> позиций<div class="sub">из {m.panel_overlap} общих</div></td>'
             f'<td>{esc(m.haplogroup) or "Не указан"}<div><span class="tag">{esc(m.verification_status.split(" (")[0])}</span></div></td>'
             f'<td>{_source(m)}</td></tr>')
@@ -109,6 +111,16 @@ def matches_table(matches, summary: dict) -> str:
             f'<div class="foot"><span id="found">Найдено {total}: индивидуальных записей {summary["individual"]}, '
             f'агрегированных наблюдений {summary["aggregated"]} (сумма N = {summary["aggregated_n"]}){more}; '
             'порядок — по GD, затем по числу сопоставленных позиций</span><span>GD — шаги различий</span></div>')
+
+
+def h4_hidden_note(summary: dict) -> str:
+    """Записи, которые не прошли условия только из-за Y-GATA-H4 в другой шкале: в таблице их нет."""
+    n = summary.get("h4_hidden", 0)
+    if not n:
+        return ""
+    return (f'<p class="note" id="h4-hidden">Записей, не показанных только из-за Y-GATA-H4: {n}. Их значение похоже на '
+            'другую шкалу, поправка не применялась. Без этого локуса они прошли бы ваши условия: чтобы увидеть их, '
+            'исключите Y-GATA-H4.</p>')
 
 
 def results_html(matches, summary: dict, query: dict, code, basis, f: dict) -> str:
@@ -127,7 +139,7 @@ def results_html(matches, summary: dict, query: dict, code, basis, f: dict) -> s
             f'<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>{accepted}'
             '<p class="note">Непроверенные данные: источники не допущены в справочник NeSToR, право на повторное '
             'использование не подтверждено, шкалы аллелей не откалиброваны — все GD предварительные. Агрегированные '
-            'наблюдения — гаплотипы с численностью N, а не отдельные люди.</p>' + body + "</div>")
+            'наблюдения — гаплотипы с численностью N, а не отдельные люди.</p>' + h4_hidden_note(summary) + body + "</div>")
 
 
 def catalog_off_html(cmd: str) -> str:

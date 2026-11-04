@@ -382,6 +382,27 @@ class CatalogMatch:
     source_title: str = ""
     publication: str = ""
     doi: str = ""
+    scale_note: str = ""       # значения Y-GATA-H4 по разные стороны порога: похоже на разные шкалы
+
+
+# Значения Y-GATA-H4 в каталоге образуют два пика (11–12 и 20–21) с провалом на 17: 18 и выше — похоже
+# на другую шкалу. Значения не пересчитываются (T15): калибровка не подтверждена, это только предупреждение.
+H4_LOCUS = "Y-GATA-H4"
+H4_SCALE_THRESHOLD = 18
+
+
+def _h4_top(view: dict):
+    v = view.get(H4_LOCUS)
+    return max(v) if mk.is_observed(v) else None
+
+
+def _h4_scale_note(query_view: dict, record_view: dict) -> str:
+    q, r = _h4_top(query_view), _h4_top(record_view)
+    if q is None or r is None or (q >= H4_SCALE_THRESHOLD) == (r >= H4_SCALE_THRESHOLD):
+        return ""
+    return (f"Возможно, разные шкалы Y-GATA-H4: у вас {_fmt(query_view[H4_LOCUS])}, в записи {_fmt(record_view[H4_LOCUS])}. "
+            "GD посчитан по значениям как есть, поправка не применялась, поэтому он может быть завышен. "
+            "Чтобы сравнить без этого локуса, исключите Y-GATA-H4.")
 
 
 @dataclass(frozen=True)
@@ -443,20 +464,47 @@ class Catalog:
         out = self._compare_all(query, **kw)
         agg = [m for m in out if m.record_kind == "aggregated"]
         return out[:limit], {"total": len(out), "individual": len(out) - len(agg), "aggregated": len(agg),
-                             "aggregated_n": sum(m.observed_n for m in agg)}
+                             "aggregated_n": sum(m.observed_n for m in agg), "h4_hidden": self._h4_hidden(query, **kw)}
+
+    def _selected(self, r: _Rec, country, source, kind, text) -> bool:
+        if (country and r.country != country) or (source and r.source_id != source) or (kind and r.kind != kind):
+            return False
+        needle = (text or "").strip().lower()
+        return not needle or needle in " ".join(str(x or "") for x in (r.sample_id, r.population, r.country,
+                                                                       r.haplogroup, r.source_id,
+                                                                       self.sources[r.source_id].get("title"))).lower()
+
+    def _h4_hidden(self, query: dict, *, max_gd: int, min_common: int, excluded=(), country: str | None = None,
+                   source: str | None = None, kind: str | None = None, text: str | None = None) -> int:
+        """Сколько записей не прошло условия только из-за Y-GATA-H4 в другой шкале (без него прошли бы)."""
+        qview = gd_view(query)[0]
+        q = _h4_top(qview)
+        if q is None:
+            return 0
+        if q >= H4_SCALE_THRESHOLD:
+            candidates = self.records
+        else:                                                          # обычный случай: записей с высоким H4 мало
+            if getattr(self, "_h4_high", None) is None:
+                self._h4_high = [r for r in self.records
+                                 if (_h4_top(gd_view(r.positions)[0]) or 0) >= H4_SCALE_THRESHOLD]
+            candidates = self._h4_high
+        count = 0
+        for r in candidates:
+            if not self._selected(r, country, source, kind, text) or not _h4_scale_note(qview, gd_view(r.positions)[0]):
+                continue
+            res = genetic_distance(query, r.positions, excluded=excluded)
+            if H4_LOCUS not in res.user_excluded and not (res.compared >= min_common and res.gd <= max_gd):
+                alt = genetic_distance(query, r.positions, excluded=(*excluded, H4_LOCUS))
+                count += alt.compared >= min_common and alt.gd <= max_gd
+        return count
 
     def _compare_all(self, query: dict, *, max_gd: int, min_common: int, excluded=(), country: str | None = None,
                      source: str | None = None, kind: str | None = None, text: str | None = None) -> list[CatalogMatch]:
         """Все совпадения, отсортированные по GD. Фильтры применяются до расчёта GD."""
-        needle = (text or "").strip().lower()
         qview = gd_view(query)[0]
         out = []
         for r in self.records:
-            if (country and r.country != country) or (source and r.source_id != source) or (kind and r.kind != kind):
-                continue
-            if needle and needle not in " ".join(str(x or "") for x in (r.sample_id, r.population, r.country,
-                                                                        r.haplogroup, r.source_id,
-                                                                        self.sources[r.source_id].get("title"))).lower():
+            if not self._selected(r, country, source, kind, text):
                 continue
             res = genetic_distance(query, r.positions, excluded=excluded)
             if res.compared < min_common or res.gd > max_gd:
@@ -482,7 +530,8 @@ class Catalog:
                                     country=r.country, differences=tuple(diffs),
                                     not_compared={k: v for k, v in not_compared.items() if v},
                                     source_title=s.get("title") or "", publication=s.get("publication") or "",
-                                    doi=s.get("doi") or ""))
+                                    doi=s.get("doi") or "",
+                                    scale_note="" if H4_LOCUS in res.user_excluded else _h4_scale_note(qview, rview)))
         out.sort(key=lambda m: (m.gd, -m.compared, m.source_id, m.sample_id))
         return out
 

@@ -79,7 +79,7 @@ table.mini{font-size:12px;margin:6px 0} table.mini td,table.mini th{padding:5px 
 .gd{font-size:12px;font-weight:650;padding:5px 9px;border-radius:5px;display:inline-block;white-space:nowrap}
 .g-near{background:#e9f4ec;color:#3c7e5a} .g-mid{background:#f8efdf;color:var(--amber)} .g-far{background:#f6e7e7;color:var(--red)}
 .tag{display:inline-block;font-size:10px;color:#5d6a74;background:#f0f3f5;border-radius:4px;padding:2px 6px;margin-top:5px}
-.tag-agg{background:var(--pale);color:var(--blue)}
+.tag-agg{background:var(--pale);color:var(--blue)} .tag-warn{background:#f8efdf;color:var(--amber)}
 .pill{font:600 10px var(--mono);letter-spacing:.08em;padding:4px 8px;border-radius:5px} .warn-pill{background:#f8efdf;color:var(--amber)}
 details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:6px;list-style:none} details summary::-webkit-details-marker{display:none}
 summary.btn{display:inline-block;border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--ink);font-size:13px;margin:0}
@@ -810,7 +810,7 @@ class _Handler(BaseHTTPRequestHandler):
                 'локального тестирования, источники не допущены в справочник NeSToR, право на повторное '
                 'использование не подтверждено, шкалы аллелей источников не откалиброваны — все GD предварительные. '
                 'Агрегированные наблюдения — гаплотипы с численностью N, а не отдельные люди. Отключение: '
-                f'<code>{esc(catalog_command())} disable</code>.</p>' + body + '</div>')
+                f'<code>{esc(catalog_command())} disable</code>.</p>' + compare_ui.h4_hidden_note(summary) + body + '</div>')
 
     def _owner_matches(self, sess, pid):
         if not sess:
