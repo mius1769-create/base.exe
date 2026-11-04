@@ -85,6 +85,9 @@ details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:6px;l
 summary.btn{display:inline-block;border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--ink);font-size:13px;margin:0}
 .drop{background:#fbfcfc;border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin-top:8px;min-width:260px;max-width:380px}
 .scroll{overflow-x:auto}
+.row label,.filters label{min-width:0;max-width:100%} .row select,.filters select{width:100%}
+.filters.short{grid-template-columns:repeat(2,minmax(130px,.6fr)) minmax(180px,1.4fr) auto} .filters.short button{white-space:nowrap}
+.help{display:flex;flex-wrap:wrap;gap:0 22px;margin:0 2px 16px} .help details[open]{flex:1 0 100%} .help-body{font-size:12px;color:var(--muted);margin-top:6px;max-width:900px} .help-body p{margin:0 0 8px}
 .tabs{display:flex;flex-wrap:wrap;gap:0 20px;border-bottom:1px solid var(--line);margin:10px 0 0} .card.flush .tabs{padding:0 18px}
 .tabs button{border:0;border-radius:0;background:none;padding:9px 0;color:var(--muted);font-size:12px;white-space:nowrap} .tabs button:hover:not(:disabled){color:var(--blue)}
 .tabs button.on{color:var(--blue);font-weight:600;box-shadow:inset 0 -2px 0 var(--blue)} .tabs button:disabled{opacity:.5;cursor:default}
@@ -108,7 +111,7 @@ table.sources{table-layout:fixed;min-width:480px} table.sources td{overflow-wrap
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #edf1f3} .settings-row p{margin:0;font-size:12px;font-weight:550}
 .caption{font-size:11px;color:#8a969f;margin:12px 0 0;line-height:1.6}
 @media (max-width:1050px){.columns{grid-template-columns:minmax(0,1fr) 245px}}
-@media (max-width:760px){nav{gap:0 18px}nav a{padding:9px 0 8px}.page-head{flex-direction:column;align-items:flex-start;gap:12px}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat .value{font-size:24px}.columns{grid-template-columns:minmax(0,1fr);gap:0}}
+@media (max-width:760px){.filters.short{grid-template-columns:1fr 1fr}.filters.short label:nth-child(3),.filters.short button{grid-column:1/-1}nav{gap:0 18px}nav a{padding:9px 0 8px}.page-head{flex-direction:column;align-items:flex-start;gap:12px}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat .value{font-size:24px}.columns{grid-template-columns:minmax(0,1fr);gap:0}}
 .foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding:12px 18px;border-top:1px solid var(--line)}
 .accepted{color:var(--green);font-size:13px} .note{font-size:12px;color:var(--amber)} .empty{padding:18px!important;color:var(--muted)}
 .footnote{font-size:12px;color:var(--muted);margin-top:4px}
@@ -493,23 +496,34 @@ class _Handler(BaseHTTPRequestHandler):
             f'<option value="{esc(c)}"{" selected" if c == current else ""}>{esc(t)}</option>' for c, t in opts) + "</select>"
 
     def _search_form(self, text="", max_gd=DEFAULT_MAX_GD, min_common=DEFAULT_MIN_COMMON, excluded="", panel="AUTO") -> str:
-        return f"""<div class="card"><h2>Гостевой поиск</h2>
-<p>Вставьте Y-STR-профиль строками <code>МАРКЕР=значение</code> (например <code>DYS393=13</code>,
-<code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения) или таблицу из двух строк
-(заголовки локусов и значения через <code>;</code>), или только значения через пробел по порядку панели —
-тогда <b>выберите панель</b> (например, для 111 чисел из FTDNA — FTDNA Y111; <code>0</code> — нет значения).
-Файлы CSV / XLSX загружаются отдельно, в разделе «Мои профили». Профиль <b>не сохраняется</b> и не публикуется.
-Гостю показываются случайные {int(GUEST_FRACTION*100)}% подходящих совпадений среди профилей,
-владельцы которых разрешили поиск; повтор запроса даёт ту же выборку.</p>
-<form method="post" action="/guest/search">
-<textarea name="markers" required>{esc(text)}</textarea>
-<p>Панель {self._panel_select(panel)}</p>
-<p>GD не больше <input type="text" name="max_gd" value="{esc(max_gd)}" size="3">,
-сравненных локусов (вошедших в GD) не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3"><br>
-исключить локусы (через запятую) <input type="text" name="excluded" value="{esc(excluded)}" size="30">
-<button>Искать</button></p></form>{self._legend()}{self._ref_note()}{self._catalog_status()}
-<p class="muted">Импорт таблиц CSV / XLSX (строка заголовков локусов + строки профилей) — отдельный режим
-после входа: «Мои профили» → импорт. Strelka и Y700 не поддерживаются.</p></div>"""
+        gd_choices = [(g, g) for g in compare_ui.GD_CHOICES]
+        common = sorted({*compare_ui.MIN_COMMON_CHOICES, int(min_common)})
+        return f"""<div class="crumb">Поиск / профили пользователей</div><h1>Поиск по профилям</h1>
+<p class="lead">Сравнение Y-STR-профиля с профилями, владельцы которых разрешили поиск. Профиль не сохраняется и не публикуется.</p>
+<form method="post" action="/guest/search" class="card">
+<div class="eyebrow">Ваш профиль · Гостевой поиск</div>
+<textarea name="markers" required placeholder="Например, 111 чисел из FTDNA / Strelka через пробел (0 — нет значения), строки DYS393=13 или таблица «заголовки + значения»">{esc(text)}</textarea>
+<div class="row">
+<label>Панель{self._panel_select(panel)}</label>
+<span class="muted hint">Для значений через пробел <b>выберите панель</b> (например, для 111 чисел из FTDNA — FTDNA Y111).
+Гость видит случайные {int(GUEST_FRACTION*100)}% подходящих совпадений; повтор запроса даёт ту же выборку.</span>
+</div>
+<div class="filters short">
+<label>Макс. GD{compare_ui._select("max_gd", gd_choices, max_gd)}</label>
+<label>Сравнено позиций от{compare_ui._select("min_common", [(c, c) for c in common], min_common)}</label>
+<label>Исключить локусы<input type="text" name="excluded" value="{esc(excluded)}" placeholder="DYS464, CDY"></label>
+<button class="primary">Искать</button>
+</div>
+</form>
+<div class="help">
+<details><summary>Как ввести профиль</summary><div class="help-body"><p>Строками <code>МАРКЕР=значение</code>
+(например <code>DYS393=13</code>, <code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения),
+таблицей из двух строк (заголовки локусов и значения через <code>;</code>) или только значениями через пробел по порядку
+панели (<code>0</code> — нет значения). Файлы CSV / XLSX загружаются после входа: «Мои профили» → импорт.
+Strelka и Y700 как отдельные форматы файлов не поддерживаются.</p></div></details>
+<details><summary>Что значит «сравнено N из M»</summary><div class="help-body">{self._legend()}</div></details>
+<details><summary>Состояние данных</summary><div class="help-body">{self._ref_note()}{self._catalog_status()}</div></details>
+</div>"""
 
     @staticmethod
     def _legend() -> str:
@@ -583,15 +597,15 @@ class _Handler(BaseHTTPRequestHandler):
                                  only_handles={m.handle for m in res.matches})
         hidden = {"markers": text, "panel": panel, "max_gd": max_gd, "min_common": min_common, "excluded": excluded,
                   "tab": form.get("tab", ""), "depth": form.get("depth", "")}
-        content = (f'<div class="card"><h2>Гостевая выборка</h2>'
+        content = (self._search_form(text, max_gd, min_common, excluded, panel)
+                   + f'<div class="card"><h2>Гостевая выборка</h2>'
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
                    f'{self._accepted_note(query, code, basis, max_gd, min_common, len(res.matches))}'
                    f'{self._panel_section(res.matches, tabs, form.get("tab"), action="/guest/search", method="post", hidden=hidden)}</div>'
                    + self._catalog_block(query, max_gd, min_common, excluded, depth=form.get("depth"),
-                                         action="/guest/search", method="post", hidden=hidden)
-                   + self._search_form(text, max_gd, min_common, excluded, panel))
+                                         action="/guest/search", method="post", hidden=hidden))
         self._page("Результаты", content, sess)
 
     @staticmethod
