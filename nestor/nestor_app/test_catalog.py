@@ -31,11 +31,11 @@ import hashlib
 import json
 import shutil
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import markers as mk
-from .gd import genetic_distance
+from .gd import gd_view, genetic_distance
 
 CATALOG_DIRNAME = "test_catalog"
 CATALOG_FILE = "nestor_test_catalog.db"
@@ -375,6 +375,30 @@ class CatalogMatch:
     license: str = ""
     quality: tuple = ()        # позиции записи, не вошедшие в сравнение: (локус, причина / QC-статус)
     preliminary: bool = True   # шкалы источников не откалиброваны (T15)
+    haplogroup: str | None = None
+    country: str | None = None
+    differences: tuple = ()    # (локус, значение запроса, значение записи, шаги | причина) — вклад в GD и исключённые
+    not_compared: dict = field(default_factory=dict, compare=False)   # категория → число позиций
+    source_title: str = ""
+    publication: str = ""
+    doi: str = ""
+
+
+@dataclass(frozen=True)
+class _Rec:
+    source_id: str
+    sample_id: str
+    population: str | None
+    kind: str
+    n: int
+    positions: dict
+    flags: tuple
+    haplogroup: str | None
+    country: str | None
+
+
+def _fmt(v) -> str:
+    return mk.format_value(v) if mk.is_observed(v) else ("—" if v is None else str(v))
 
 
 class Catalog:
@@ -386,32 +410,84 @@ class Catalog:
             if con.execute("SELECT value FROM catalog_meta WHERE key='purpose'").fetchone()[0] != PURPOSE:
                 raise CatalogError("файл не является локальным тестовым каталогом NeSToR")
             self.sources = {r["source_id"]: dict(r) for r in con.execute("SELECT * FROM sources")}
-            self.records = []
+            self.records: list[_Rec] = []
             for r in con.execute("SELECT source_id, source_sample_id, population, record_kind, observed_n, "
-                                 "positions_json, flags_json FROM records"):
+                                 "positions_json, flags_json, haplogroup, country FROM records ORDER BY id"):
                 pos = {k: mk.from_storage(v, st) for k, (v, st) in json.loads(r["positions_json"]).items()}
-                self.records.append((r["source_id"], r["source_sample_id"], r["population"], r["record_kind"],
-                                     r["observed_n"], pos, tuple(json.loads(r["flags_json"]))))
+                self.records.append(_Rec(r["source_id"], r["source_sample_id"], r["population"], r["record_kind"],
+                                         r["observed_n"], pos, tuple(json.loads(r["flags_json"])),
+                                         r["haplogroup"], r["country"]))
             self.counts = {"records": len(self.records),
-                           "individual_records": sum(1 for x in self.records if x[3] != "aggregated"),
-                           "aggregated_records": sum(1 for x in self.records if x[3] == "aggregated"),
-                           "aggregated_observations": sum(x[4] for x in self.records if x[3] == "aggregated"),
+                           "individual_records": sum(1 for x in self.records if x.kind != "aggregated"),
+                           "aggregated_records": sum(1 for x in self.records if x.kind == "aggregated"),
+                           "aggregated_observations": sum(x.n for x in self.records if x.kind == "aggregated"),
                            "sources": len(self.sources)}
         finally:
             con.close()
 
-    def search(self, query: dict, *, max_gd: int, min_common: int, excluded=(), limit: int = 200) -> list[CatalogMatch]:
+    def facets(self) -> dict:
+        """Значения для фильтров: страны и источники (с числом записей)."""
+        countries = collections.Counter(r.country for r in self.records if r.country)
+        sources = collections.Counter(r.source_id for r in self.records)
+        return {"countries": sorted(countries.items(), key=lambda x: (-x[1], x[0])),
+                "sources": [(s, self.sources[s].get("title") or s, n)
+                            for s, n in sorted(sources.items(), key=lambda x: (-x[1], x[0]))]}
+
+    def compare(self, query: dict, *, limit: int = 200, **kw) -> tuple[list[CatalogMatch], int]:
+        """Сравнение профиля с каталогом. Возвращает (первые limit совпадений, всего совпадений)."""
+        out = self._compare_all(query, **kw)
+        return out[:limit], len(out)
+
+    def compare_summary(self, query: dict, *, limit: int = 200, **kw) -> tuple[list[CatalogMatch], dict]:
+        """Как compare(), но со сводкой по ВСЕМ найденным (а не только по показанным)."""
+        out = self._compare_all(query, **kw)
+        agg = [m for m in out if m.record_kind == "aggregated"]
+        return out[:limit], {"total": len(out), "individual": len(out) - len(agg), "aggregated": len(agg),
+                             "aggregated_n": sum(m.observed_n for m in agg)}
+
+    def _compare_all(self, query: dict, *, max_gd: int, min_common: int, excluded=(), country: str | None = None,
+                     source: str | None = None, kind: str | None = None, text: str | None = None) -> list[CatalogMatch]:
+        """Все совпадения, отсортированные по GD. Фильтры применяются до расчёта GD."""
+        needle = (text or "").strip().lower()
+        qview = gd_view(query)[0]
         out = []
-        for src, sid, pop, kind, n, pos, flags in self.records:
-            res = genetic_distance(query, pos, excluded=excluded)
-            if res.compared >= min_common and res.gd <= max_gd:
-                s = self.sources[src]
-                quality = tuple((k, str(v)) for k, v in sorted(pos.items()) if isinstance(v, mk.Invalid))
-                out.append(CatalogMatch(src, sid, pop, kind, n, res.gd, res.compared, res.panel_overlap,
-                                        s["verification_status"], s["reuse_note"], flags,
-                                        license=s.get("license") or "", quality=quality))
+        for r in self.records:
+            if (country and r.country != country) or (source and r.source_id != source) or (kind and r.kind != kind):
+                continue
+            if needle and needle not in " ".join(str(x or "") for x in (r.sample_id, r.population, r.country,
+                                                                        r.haplogroup, r.source_id,
+                                                                        self.sources[r.source_id].get("title"))).lower():
+                continue
+            res = genetic_distance(query, r.positions, excluded=excluded)
+            if res.compared < min_common or res.gd > max_gd:
+                continue
+            s = self.sources[r.source_id]
+            rview = gd_view(r.positions)[0]
+            diffs = []
+            for locus, (cat, steps) in sorted(res.per_locus.items()):
+                if cat == "compared" and steps:
+                    diffs.append((locus, _fmt(qview.get(locus)), _fmt(rview.get(locus)), steps))
+                elif cat == "copy_count":
+                    diffs.append((locus, _fmt(qview.get(locus)), _fmt(rview.get(locus)), "разное число копий"))
+                elif cat == "fractional":
+                    diffs.append((locus, _fmt(qview.get(locus)), _fmt(rview.get(locus)), "дробное, без шагов"))
+            not_compared = {"нет значения / не распознано": len(res.missing_or_invalid),
+                            "разное число копий": len(res.copy_count_differences),
+                            "дробные различия": len(res.allele_differences),
+                            "исключены вами": len(res.user_excluded)}
+            quality = tuple((k, str(v)) for k, v in sorted(r.positions.items()) if isinstance(v, mk.Invalid))
+            out.append(CatalogMatch(r.source_id, r.sample_id, r.population, r.kind, r.n, res.gd, res.compared,
+                                    res.panel_overlap, s["verification_status"], s["reuse_note"], r.flags,
+                                    license=s.get("license") or "", quality=quality, haplogroup=r.haplogroup,
+                                    country=r.country, differences=tuple(diffs),
+                                    not_compared={k: v for k, v in not_compared.items() if v},
+                                    source_title=s.get("title") or "", publication=s.get("publication") or "",
+                                    doi=s.get("doi") or ""))
         out.sort(key=lambda m: (m.gd, -m.compared, m.source_id, m.sample_id))
-        return out[:limit]
+        return out
+
+    def search(self, query: dict, *, max_gd: int, min_common: int, excluded=(), limit: int = 200) -> list[CatalogMatch]:
+        return self.compare(query, max_gd=max_gd, min_common=min_common, excluded=excluded, limit=limit)[0]
 
 
 def load_if_enabled(var_dir: Path) -> Catalog | None:

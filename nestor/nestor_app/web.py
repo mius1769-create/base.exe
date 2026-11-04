@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 import email.parser
 import email.policy
 
+from . import compare_ui
 from . import accounts, contacts, panels
 from . import importer as im
 from . import backups, staging
@@ -38,18 +39,58 @@ VIS_LABELS = {"hidden": "скрыто", "registered": "только зареги
 BASIS_LABELS = {"own_test": "мой собственный тест", "authorized_other": "тест другого человека, с его разрешения"}
 
 CSS = """
-:root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#666;--line:#ddd;--accent:#2f5d8a;--card:#fff;--warn:#8a4b00}
-@media (prefers-color-scheme:dark){:root{--bg:#1a1a1a;--fg:#eee;--muted:#aaa;--line:#333;--accent:#7fb0e0;--card:#232323;--warn:#e0a060}}
-body{font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0}
-main{max-width:920px;margin:0 auto;padding:16px}
-header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:12px 16px}
-header b{font-size:18px} a{color:var(--accent)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin:12px 0}
-textarea{width:100%;min-height:140px;font-family:ui-monospace,monospace;box-sizing:border-box}
-input[type=text],input[type=email],input[type=password],select{padding:4px;max-width:100%}
-table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
-.muted{color:var(--muted)} .err{color:#b00020;font-weight:600} .warn{color:var(--warn)}
-form.inline{display:inline} button{cursor:pointer}
+:root{--bg:#f3f5f6;--paper:#fff;--ink:#202d37;--muted:#74808a;--line:#dfe5e9;--blue:#307aa2;--pale:#eaf3f8;
+--green:#397e65;--amber:#986a29;--red:#b55555;--radius:9px;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+header{background:var(--paper);border-bottom:1px solid var(--line)}
+.top{max-width:1180px;margin:0 auto;padding:14px 24px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink)} .brand small{font:500 10px var(--mono);color:var(--muted);
+letter-spacing:.12em;margin-left:10px;border-left:1px solid var(--line);padding-left:10px}
+.top .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+nav{max-width:1180px;margin:0 auto;padding:0 24px;display:flex;gap:26px;flex-wrap:wrap}
+nav a{color:#4b5963;padding:14px 0 12px;border-bottom:2px solid transparent;font-size:14px}
+nav a.on{color:var(--blue);border-bottom-color:var(--blue)} nav a:hover{text-decoration:none;color:var(--blue)}
+main{max-width:1180px;margin:0 auto;padding:18px 24px 40px}
+.crumb{font:500 10px var(--mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin:16px 0 6px}
+h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.02em} h2{font-size:18px;margin:0 0 10px}
+.lead{color:var(--muted);margin:0 0 18px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin:0 0 16px}
+.card.flush{padding:0} .card.flush>p,.card.flush>.card-head{padding:0 18px} .card-head{display:flex;align-items:center;gap:12px;padding-top:18px!important}
+.eyebrow{font:500 10px var(--mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+textarea{width:100%;min-height:110px;font:13px/1.45 var(--mono);border:1px solid var(--line);border-radius:7px;padding:10px;background:#fbfcfc}
+input[type=text],input[type=email],input[type=password],select{border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#fff;font:inherit;max-width:100%}
+input[type=text]:not([size]),input[type=email],input[type=password]{width:100%} input[size]{width:auto}
+button{cursor:pointer;font:inherit;border:1px solid var(--line);background:#fff;border-radius:7px;padding:8px 14px}
+button.primary,.primary{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600}
+.row{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin:10px 0}
+.row label,.filters label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:#6b7781}
+.hint{flex:1;min-width:260px;font-size:12px}
+.filters{display:grid;grid-template-columns:2fr repeat(2,minmax(110px,.7fr)) repeat(2,minmax(150px,1.3fr)) minmax(130px,1fr) minmax(130px,1fr) auto;
+gap:10px;align-items:end;border-top:1px solid var(--line);margin:14px -18px -18px;padding:14px 18px;background:#fbfcfc;border-radius:0 0 var(--radius) var(--radius)}
+@media (max-width:900px){.filters{grid-template-columns:1fr 1fr}}
+table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}
+th{font-size:11px;font-weight:500;color:#7a8790;background:#f7f9fa;padding:10px 14px;white-space:nowrap}
+td{padding:12px 14px;border-top:1px solid var(--line);vertical-align:top}
+table.results td{padding:14px 18px} table.results th{padding:10px 18px}
+table.mini{font-size:12px;margin:6px 0} table.mini td,table.mini th{padding:5px 8px} table.kv th{width:42%;background:none;white-space:normal;vertical-align:top}
+.sub{font-size:11px;color:var(--muted);margin-top:2px}
+.gd{font-size:12px;font-weight:650;padding:5px 9px;border-radius:5px;display:inline-block;white-space:nowrap}
+.g-near{background:#e9f4ec;color:#3c7e5a} .g-mid{background:#f8efdf;color:var(--amber)} .g-far{background:#f6e7e7;color:var(--red)}
+.tag{display:inline-block;font-size:10px;color:#5d6a74;background:#f0f3f5;border-radius:4px;padding:2px 6px;margin-top:5px}
+.tag-agg{background:var(--pale);color:var(--blue)}
+.pill{font:600 10px var(--mono);letter-spacing:.08em;padding:4px 8px;border-radius:5px} .warn-pill{background:#f8efdf;color:var(--amber)}
+details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:6px;list-style:none} details summary::-webkit-details-marker{display:none}
+summary.btn{display:inline-block;border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--ink);font-size:13px;margin:0}
+.drop{background:#fbfcfc;border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin-top:8px;min-width:260px;max-width:380px}
+.scroll{overflow-x:auto}
+.foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding:12px 18px;border-top:1px solid var(--line)}
+.accepted{color:var(--green);font-size:13px} .note{font-size:12px;color:var(--amber)} .empty{padding:18px!important;color:var(--muted)}
+.footnote{font-size:12px;color:var(--muted);margin-top:4px}
+pre{white-space:pre-wrap;background:#f7f9fa;border:1px solid var(--line);border-radius:7px;padding:10px;font:12px var(--mono)}
+.muted{color:var(--muted)} .err{color:var(--red);font-weight:600} .warn{color:var(--amber)}
+form.inline{display:inline} code{font:12px var(--mono);background:#f0f3f5;padding:1px 4px;border-radius:3px}
 """
 
 
@@ -230,16 +271,18 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _page(self, title: str, content: str, sess=None, status=200):
-        if sess:
-            nav = (f'<a href="/">Поиск</a><a href="/me">Мои профили</a>'
-                   f'<form class="inline" method="post" action="/logout">'
-                   f'<input type="hidden" name="csrf" value="{esc(sess[1])}"><button>Выйти</button></form>')
-        else:
-            nav = '<a href="/">Поиск</a><a href="/login">Войти</a><a href="/register">Регистрация</a>'
+        path = urlsplit(self.path).path
+        links = [("/compare", "Сравнение с научными данными"), ("/", "Поиск по профилям")]
+        links += [("/me", "Мои профили")] if sess else [("/login", "Войти"), ("/register", "Регистрация")]
+        nav = "".join(f'<a href="{h}"{" class=on" if (path == h or (h == "/" and path == "/guest/search")) else ""}>{esc(t)}</a>'
+                      for h, t in links)
+        right = (f'<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" '
+                 f'value="{esc(sess[1])}"><button>Выйти</button></form>') if sess else ""
         body = (f'<!doctype html><html lang="ru"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width,initial-scale=1">'
                 f'<title>{esc(title)} — NeSToR</title><style>{CSS}</style></head><body>'
-                f'<header><b>NeSToR</b>{nav}<span class="muted">локальный MVP</span></header>'
+                f'<header><div class="top"><span class="brand">NeSToR<small>Y-ДНК · ЛОКАЛЬНО</small></span>'
+                f'<span class="right">{right}</span></div><nav>{nav}</nav></header>'
                 f'<main>{content}</main></body></html>')
         self._send(status, body)
 
@@ -273,6 +316,8 @@ class _Handler(BaseHTTPRequestHandler):
         _, sess = self._session()
         if path == "/":
             return self._home(sess)
+        if path == "/compare":
+            return self._compare(sess, None)
         if path == "/register":
             return self._register_form(sess)
         if path == "/login":
@@ -310,6 +355,8 @@ class _Handler(BaseHTTPRequestHandler):
         form = self._form()
         if path == "/guest/search":
             return self._guest_search(sess, form)
+        if path == "/compare":
+            return self._compare(sess, form)
         if path == "/register":
             uid = accounts.register(self.nestor.conn, form.get("email", ""), form.get("password", ""),
                                     form.get("display_name"))
@@ -462,13 +509,7 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError("порог GD и минимум маркеров должны быть числами") from None
         excluded = form.get("excluded", "")
         panel = form.get("panel", "AUTO")
-        try:
-            if panels.looks_like_flat_list(text):     # «14 23 14 11 …» — только по выбранной панели
-                query, code, basis = panels.apply_panel(panels.parse_flat_values(text, panel), panel)
-            else:
-                query, code, basis = panels.apply_panel(mk.parse_profile_input(text), panel)
-        except (panels.PanelMismatch, panels.UnsupportedPanel) as e:
-            raise ValueError(str(e)) from None
+        query, code, basis = self._parse_query(text, panel)
         res = search.guest_search(self.nestor.conn, self.nestor.secret, query,
                                   max_gd=max_gd, min_common=min_common,
                                   excluded_loci=self._excluded_list(excluded))
@@ -481,6 +522,46 @@ class _Handler(BaseHTTPRequestHandler):
                    + self._catalog_block(query, max_gd, min_common, excluded)
                    + self._search_form(text, max_gd, min_common, excluded, panel))
         self._page("Результаты", content, sess)
+
+    @staticmethod
+    def _parse_query(text: str, panel: str):
+        """Профиль из формы: плоский список — только по выбранной панели; иначе МАРКЕР=значение / таблица."""
+        try:
+            if panels.looks_like_flat_list(text):     # «14 23 14 11 …» — только по выбранной панели
+                return panels.apply_panel(panels.parse_flat_values(text, panel), panel)
+            return panels.apply_panel(mk.parse_profile_input(text), panel)
+        except (panels.PanelMismatch, panels.UnsupportedPanel, mk.MarkerError) as e:
+            raise ValueError(str(e)) from None
+
+    def _compare(self, sess, form):
+        """Один профиль → локальный тестовый научный каталог (профиль не сохраняется)."""
+        cat = self.nestor.test_catalog()
+        head = ('<div class="crumb">Сравнение / научные данные</div><h1>Генетические совпадения</h1>'
+                '<p class="lead">Сравнение одного профиля с научными популяционными выборками локального '
+                'тестового каталога. Профиль не сохраняется.</p>')
+        if cat is None:
+            return self._page("Сравнение", head + compare_ui.catalog_off_html(catalog_command()), sess)
+        f = dict(compare_ui.DEFAULTS)
+        f.update({k: v for k, v in (form or {}).items() if k != "csrf"})
+        panel = f.get("panel", "AUTO")
+        facets = cat.facets()
+        content, error = "", ""
+        if form is not None:
+            try:
+                max_gd, min_common = int(f["max_gd"]), int(f["min_common"])
+                if not (0 <= max_gd <= 10) or min_common < 1:
+                    raise ValueError("Макс. GD — от 0 до 10, общих позиций — не меньше 1")
+                query, code, basis = self._parse_query(f.get("markers", ""), panel)
+                matches, summary = cat.compare_summary(query, max_gd=max_gd, min_common=min_common,
+                                             excluded=self._excluded_list(f.get("excluded", "")),
+                                             country=f.get("country") or None, source=f.get("source") or None,
+                                             kind=f.get("kind") or None, text=f.get("text") or None)
+                content = compare_ui.results_html(matches, summary, query, code, basis,
+                                                  {"max_gd": max_gd, "min_common": min_common})
+            except ValueError as e:
+                error = str(e)
+        page = head + compare_ui.form_html(f, facets, self._panel_select(panel), error) + content + compare_ui.FOOTNOTE
+        self._page("Сравнение", page, sess, 400 if error else 200)
 
     @staticmethod
     def _accepted_note(query, code, basis, max_gd, min_common, shown) -> str:
