@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -165,3 +166,46 @@ def panel_label(panel_code: str | None, basis: str) -> str:
         return "пользовательский набор (панель неизвестна, позиции — только указанные)"
     title = PANELS[panel_code].title if panel_code in PANELS else panel_code
     return f"{title} ({'выбрана' if basis == 'selected' else 'распознана'})"
+
+
+# ---------- плоский список аллелей (только при явно выбранной панели) ----------
+
+_FLAT_TOKEN = re.compile(r"^\d{1,3}(\.\d+)?$")
+_COPY_SUFFIXES = "ABCD"
+
+
+def looks_like_flat_list(text: str) -> bool:
+    """Только числа, разделённые пробелами / переводами строк (без имён локусов и разделителей таблиц)."""
+    tokens = text.split()
+    return len(tokens) > 1 and all(_FLAT_TOKEN.match(t) for t in tokens)
+
+
+def parse_flat_values(text: str, panel_code: str | None) -> dict:
+    """Список значений по порядку и числу позиций аллелей выбранной панели.
+
+    Панель должна быть выбрана явно: при AUTO / пользовательском наборе состав по
+    числу значений не угадывается. «0» — нет значения. Многокопийный локус берёт
+    столько значений, сколько у него копий в реестре панели; неполный набор копий
+    обрабатывается общими правилами (все пусто — нет значения; часть — не распознано).
+    """
+    code = (panel_code or "").strip().upper()
+    if code in ("", "AUTO", CUSTOM):
+        raise PanelMismatch("значения без названий локусов: выберите панель (например FTDNA Y111) — "
+                            "по числу значений панель не определяется")
+    panel = get_panel(code)
+    tokens = text.split()
+    if len(tokens) != panel.allele_count:
+        raise PanelMismatch(f"для панели {panel.title} нужно {panel.allele_count} значений по порядку панели, "
+                            f"введено {len(tokens)}")
+    from .markers import normalize_entries
+    raw: dict[str, str] = {}
+    pos = 0
+    for name, copies in panel.markers:
+        chunk = tokens[pos:pos + copies]
+        pos += copies
+        if copies == 1:
+            raw[name] = chunk[0]
+        else:
+            for i, v in enumerate(chunk):
+                raw[f"{name}{_COPY_SUFFIXES[i]}"] = v
+    return normalize_entries(raw)

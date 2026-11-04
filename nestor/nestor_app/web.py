@@ -57,6 +57,20 @@ def esc(v) -> str:
     return html.escape("" if v is None else str(v))
 
 
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1"}
+
+
+def _loopback_netloc(netloc: str | None, port: int) -> bool:
+    """`localhost:PORT` или `127.0.0.1:PORT` ровно на порту этого сервера."""
+    if not netloc:
+        return False
+    try:
+        u = urlsplit("//" + netloc)
+        return (u.hostname or "").lower() in LOOPBACK_HOSTS and u.port == port and not u.username and not u.password
+    except ValueError:
+        return False
+
+
 class NestorApp:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -171,10 +185,27 @@ class _Handler(BaseHTTPRequestHandler):
         return {k: v[0] for k, v in self.form_lists.items()}
 
     def _same_origin(self) -> bool:
-        origin = self.headers.get("Origin") or self.headers.get("Referer")
-        if not origin or origin == "null":
-            return origin is None
-        return urlsplit(origin).netloc == self.headers.get("Host")
+        """Запрос из этого же приложения: loopback-адрес и тот же порт, что у сервера.
+
+        NeSToR слушает только 127.0.0.1, поэтому http://localhost:PORT и
+        http://127.0.0.1:PORT — один и тот же сервер; другой порт, другое имя,
+        https, `Origin: null` и внешние источники отклоняются. Host тоже проверяется
+        (защита от DNS rebinding). Без Origin и Referer (не браузер) — как раньше,
+        запрос пропускается; действия с аккаунтом дополнительно защищены CSRF-токеном.
+        """
+        port = self.server.server_address[1]
+        if not _loopback_netloc(self.headers.get("Host"), port):
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            referer = self.headers.get("Referer")
+            if referer is None:
+                return True
+            origin = referer
+        if origin == "null":
+            return False
+        u = urlsplit(origin)
+        return u.scheme == "http" and _loopback_netloc(u.netloc, port)
 
     def _send(self, status: int, body: str, ctype="text/html; charset=utf-8", extra_headers=None):
         data = body.encode("utf-8")
@@ -183,7 +214,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Referrer-Policy", "same-origin")   # no-referrer давал Origin: null у POST формы
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'")
         for k, v in (extra_headers or []):
             self.send_header(k, v)
@@ -365,7 +396,9 @@ class _Handler(BaseHTTPRequestHandler):
         return f"""<div class="card"><h2>Гостевой поиск</h2>
 <p>Вставьте Y-STR-профиль строками <code>МАРКЕР=значение</code> (например <code>DYS393=13</code>,
 <code>DYS385=11-14</code>; пустое значение <code>DYS19=</code> — позиция без значения) или таблицу из двух строк
-(заголовки локусов и значения через <code>;</code>). Профиль <b>не сохраняется</b> и не публикуется.
+(заголовки локусов и значения через <code>;</code>), или только значения через пробел по порядку панели —
+тогда <b>выберите панель</b> (например, для 111 чисел из FTDNA — FTDNA Y111; <code>0</code> — нет значения).
+Файлы CSV / XLSX загружаются отдельно, в разделе «Мои профили». Профиль <b>не сохраняется</b> и не публикуется.
 Гостю показываются случайные {int(GUEST_FRACTION*100)}% подходящих совпадений среди профилей,
 владельцы которых разрешили поиск; повтор запроса даёт ту же выборку.</p>
 <form method="post" action="/guest/search">
@@ -375,8 +408,8 @@ class _Handler(BaseHTTPRequestHandler):
 сравненных локусов (вошедших в GD) не меньше <input type="text" name="min_common" value="{esc(min_common)}" size="3"><br>
 исключить локусы (через запятую) <input type="text" name="excluded" value="{esc(excluded)}" size="30">
 <button>Искать</button></p></form>{self._legend()}{self._ref_note()}{self._catalog_status()}
-<p class="muted">Импорт файлов FTDNA CSV, Genopoisk Y37/Y50 и Strelka XLSX будет добавлен после аудита архива.
-Y700 не поддерживается.</p></div>"""
+<p class="muted">Импорт таблиц CSV / XLSX (строка заголовков локусов + строки профилей) — отдельный режим
+после входа: «Мои профили» → импорт. Strelka и Y700 не поддерживаются.</p></div>"""
 
     @staticmethod
     def _legend() -> str:
@@ -430,7 +463,10 @@ Y700 не поддерживается.</p></div>"""
         excluded = form.get("excluded", "")
         panel = form.get("panel", "AUTO")
         try:
-            query, _, _ = panels.apply_panel(mk.parse_profile_input(text), panel)
+            if panels.looks_like_flat_list(text):     # «14 23 14 11 …» — только по выбранной панели
+                query, code, basis = panels.apply_panel(panels.parse_flat_values(text, panel), panel)
+            else:
+                query, code, basis = panels.apply_panel(mk.parse_profile_input(text), panel)
         except (panels.PanelMismatch, panels.UnsupportedPanel) as e:
             raise ValueError(str(e)) from None
         res = search.guest_search(self.nestor.conn, self.nestor.secret, query,
@@ -440,10 +476,22 @@ Y700 не поддерживается.</p></div>"""
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
+                   f'{self._accepted_note(query, code, basis, max_gd, min_common, len(res.matches))}'
                    f'{self._match_table(res.matches)}</div>'
                    + self._catalog_block(query, max_gd, min_common, excluded)
                    + self._search_form(text, max_gd, min_common, excluded, panel))
         self._page("Результаты", content, sess)
+
+    @staticmethod
+    def _accepted_note(query, code, basis, max_gd, min_common, shown) -> str:
+        observed = sum(1 for v in query.values() if mk.is_observed(v))
+        missing = sum(1 for v in query.values() if v is None)
+        invalid = sum(1 for v in query.values() if isinstance(v, mk.Invalid))
+        found = (f"показано совпадений: {shown}" if shown else
+                 f"совпадений при GD ≤ {max_gd} и не меньше {min_common} сравненных локусов в выборке нет")
+        return (f'<p id="query-accepted">Профиль принят: {esc(panels.panel_label(code, basis))}; '
+                f'позиций со значением {observed}, без значения {missing}, не распознано {invalid}. '
+                f'{esc(found)}.</p>')
 
     def _register_form(self, sess):
         self._page("Регистрация", """<div class="card"><h2>Регистрация</h2>
