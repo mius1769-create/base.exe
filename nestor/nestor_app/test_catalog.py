@@ -385,6 +385,12 @@ class CatalogMatch:
     scale_note: str = ""       # значения Y-GATA-H4 по разные стороны порога: похоже на разные шкалы
 
 
+# Вкладки каталога: по числу реально сравненных позиций. Научные записи почти не содержат полных
+# панелей FTDNA и Генопоиска, поэтому здесь границы взяты из наборов локусов самого каталога.
+DEPTH_ALL = "all"
+DEPTH_TIERS = (("12-16", "12–16", 12, 16), ("17-27", "17–27", 17, 27), ("28-37", "28–37", 28, 37),
+               ("38+", "38 и больше", 38, 10 ** 6))
+
 # Значения Y-GATA-H4 в каталоге образуют два пика (11–12 и 20–21) с провалом на 17: 18 и выше — похоже
 # на другую шкалу. Значения не пересчитываются (T15): калибровка не подтверждена, это только предупреждение.
 H4_LOCUS = "Y-GATA-H4"
@@ -459,12 +465,21 @@ class Catalog:
         out = self._compare_all(query, **kw)
         return out[:limit], len(out)
 
-    def compare_summary(self, query: dict, *, limit: int = 200, **kw) -> tuple[list[CatalogMatch], dict]:
-        """Как compare(), но со сводкой по ВСЕМ найденным (а не только по показанным)."""
-        out = self._compare_all(query, **kw)
+    def compare_summary(self, query: dict, *, limit: int = 200, depth: str | None = None, **kw) -> tuple[list[CatalogMatch], dict]:
+        """Как compare(), но со сводкой по всем найденным на вкладке глубины (а не только по показанным).
+
+        depth — вкладка DEPTH_TIERS; без неё открывается самая глубокая вкладка с результатами.
+        """
+        everything = self._compare_all(query, **kw)
+        tiers = [(code, label, sum(1 for m in everything if lo <= m.compared <= hi)) for code, label, lo, hi in DEPTH_TIERS]
+        known = {t[0] for t in tiers} | {DEPTH_ALL}
+        tier = depth if depth in known else next((t[0] for t in reversed(tiers) if t[2]), DEPTH_ALL)
+        bounds = next(((lo, hi) for code, _, lo, hi in DEPTH_TIERS if code == tier), None)
+        out = everything if bounds is None else [m for m in everything if bounds[0] <= m.compared <= bounds[1]]
         agg = [m for m in out if m.record_kind == "aggregated"]
         return out[:limit], {"total": len(out), "individual": len(out) - len(agg), "aggregated": len(agg),
-                             "aggregated_n": sum(m.observed_n for m in agg), "h4_hidden": self._h4_hidden(query, **kw)}
+                             "aggregated_n": sum(m.observed_n for m in agg), "h4_hidden": self._h4_hidden(query, **kw),
+                             "tiers": [(DEPTH_ALL, "Все", len(everything)), *tiers], "tier": tier}
 
     def _selected(self, r: _Rec, country, source, kind, text) -> bool:
         if (country and r.country != country) or (source and r.source_id != source) or (kind and r.kind != kind):
@@ -473,6 +488,12 @@ class Catalog:
         return not needle or needle in " ".join(str(x or "") for x in (r.sample_id, r.population, r.country,
                                                                        r.haplogroup, r.source_id,
                                                                        self.sources[r.source_id].get("title"))).lower()
+
+    def h4_high_records(self) -> list[_Rec]:
+        """Записи с Y-GATA-H4 от порога и выше; считается один раз."""
+        if getattr(self, "_h4_high", None) is None:
+            self._h4_high = [r for r in self.records if (_h4_top(gd_view(r.positions)[0]) or 0) >= H4_SCALE_THRESHOLD]
+        return self._h4_high
 
     def _h4_hidden(self, query: dict, *, max_gd: int, min_common: int, excluded=(), country: str | None = None,
                    source: str | None = None, kind: str | None = None, text: str | None = None) -> int:
@@ -484,10 +505,7 @@ class Catalog:
         if q >= H4_SCALE_THRESHOLD:
             candidates = self.records
         else:                                                          # обычный случай: записей с высоким H4 мало
-            if getattr(self, "_h4_high", None) is None:
-                self._h4_high = [r for r in self.records
-                                 if (_h4_top(gd_view(r.positions)[0]) or 0) >= H4_SCALE_THRESHOLD]
-            candidates = self._h4_high
+            candidates = self.h4_high_records()
         count = 0
         for r in candidates:
             if not self._selected(r, country, source, kind, text) or not _h4_scale_note(qview, gd_view(r.positions)[0]):

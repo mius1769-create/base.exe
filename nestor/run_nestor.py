@@ -23,6 +23,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "catalog":
         from nestor_app.catalog_cli import main as catalog_main
         raise SystemExit(catalog_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "master":
+        from nestor_app.master_cli import main as master_main
+        raise SystemExit(master_main(sys.argv[2:]))
     ap = argparse.ArgumentParser(description="NeSToR — локальный MVP (только 127.0.0.1)")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--var-dir", default=None, help="папка для nestor_users.db и секрета (по умолчанию nestor/var)")

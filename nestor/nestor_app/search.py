@@ -26,11 +26,16 @@ import sqlite3
 from dataclasses import dataclass
 
 from . import markers as mk
+from . import panels
 from . import profiles as pr
 from .config import DEFAULT_MAX_GD, DEFAULT_MIN_COMMON, GUEST_FRACTION, MAX_ALLOWED_GD
-from .gd import genetic_distance, normalize_excluded
+from .gd import gd_view, genetic_distance, normalize_excluded
 
 SAMPLING_VERSION = "guest-v1"
+
+TAB_ALL = "all"
+PANEL_TABS = ("FTDNA_Y12", "FTDNA_Y25", "FTDNA_Y37", "FTDNA_Y67", "FTDNA_Y111", "GENOPOISK_Y37", "GENOPOISK_Y50")
+PANEL_MIN_SHARE = 0.9   # доля позиций панели, которая должна войти в GD: у реальных профилей бывают пропуски
 
 
 class SearchError(ValueError):
@@ -67,22 +72,63 @@ def _check_params(max_gd: int, min_common: int) -> None:
         raise SearchError("минимум общих маркеров должен быть не меньше 1")
 
 
+def _public(row, res, viewer) -> PublicMatch:
+    return PublicMatch(
+        handle=row["public_handle"], gd=res.gd, compared=res.compared,
+        nickname=pr.visible_field(row["nickname"], row["nickname_visibility"], viewer),
+        ancestor=pr.visible_field(row["ancestor_text"], row["ancestor_visibility"], viewer),
+        preliminary=res.preliminary, panel_overlap=res.panel_overlap,
+        missing_or_invalid=len(res.missing_or_invalid),
+        copy_count_differences=len(res.copy_count_differences),
+        allele_differences=len(res.allele_differences),
+        user_excluded=len(res.user_excluded),
+    )
+
+
 def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None, excluded_loci=()):
     out: list[PublicMatch] = []
     for row, markers in pr.iter_searchable(conn, exclude_owner=exclude_owner):
         res = genetic_distance(query, markers, excluded=excluded_loci)
         if res.compared >= min_common and res.gd <= max_gd:
-            out.append(PublicMatch(
-                handle=row["public_handle"], gd=res.gd, compared=res.compared,
-                nickname=pr.visible_field(row["nickname"], row["nickname_visibility"], viewer),
-                ancestor=pr.visible_field(row["ancestor_text"], row["ancestor_visibility"], viewer),
-                preliminary=res.preliminary, panel_overlap=res.panel_overlap,
-                missing_or_invalid=len(res.missing_or_invalid),
-                copy_count_differences=len(res.copy_count_differences),
-                allele_differences=len(res.allele_differences),
-                user_excluded=len(res.user_excluded),
-            ))
+            out.append(_public(row, res, viewer))
     return out
+
+
+def _panel_positions(code: str) -> set[str]:
+    names = set(panels.get_panel(code).marker_names)
+    if "DYS389II" in names:  # T16: в GD вместо DYS389II идёт DYS389B
+        names.discard("DYS389II")
+        names.add("DYS389B")
+    return names
+
+
+def panel_tabs(conn, query, *, max_gd: int, viewer: str, exclude_owner=None, excluded_loci=(),
+               only_handles=None) -> dict[str, list[PublicMatch]]:
+    """Совпадения по вкладкам панелей: GD считается только по локусам панели.
+
+    На вкладку попадает профиль, у которого сравнено не меньше PANEL_MIN_SHARE позиций панели;
+    общий порог «сравнено» здесь не действует, панель сама задаёт глубину. only_handles для гостя:
+    вкладки показывают только его основную выборку, иначе переключением можно увидеть больше 20%.
+    """
+    qview = gd_view(query)[0]
+    loci = {code: _panel_positions(code) for code in PANEL_TABS}
+    out: dict[str, list[PublicMatch]] = {code: [] for code in PANEL_TABS}
+    for row, markers in pr.iter_searchable(conn, exclude_owner=exclude_owner):
+        if only_handles is not None and row["public_handle"] not in only_handles:
+            continue
+        mview = gd_view(markers)[0]
+        for code, names in loci.items():
+            res = genetic_distance({k: v for k, v in qview.items() if k in names},
+                                   {k: v for k, v in mview.items() if k in names}, excluded=excluded_loci)
+            if res.compared >= math.ceil(PANEL_MIN_SHARE * len(names)) and res.gd <= max_gd:
+                out[code].append(_public(row, res, viewer))
+    return {code: _sort(v) for code, v in out.items()}
+
+
+def default_panel_tab(tabs: dict[str, list[PublicMatch]]) -> str:
+    """Самая глубокая панель с результатами, иначе общая вкладка."""
+    filled = [c for c, v in tabs.items() if v]
+    return max(filled, key=lambda c: len(_panel_positions(c))) if filled else TAB_ALL
 
 
 def _sort(matches: list[PublicMatch]) -> list[PublicMatch]:

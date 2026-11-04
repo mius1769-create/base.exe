@@ -16,7 +16,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     email          TEXT NOT NULL UNIQUE COLLATE NOCASE,   -- приватно, наружу не выводится
     password_hash  TEXT NOT NULL,
     display_name   TEXT,                                   -- псевдоним для запросов на связь
-    created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    is_master      INTEGER NOT NULL DEFAULT 0 CHECK (is_master IN (0,1)),  -- только через `master grant` на этом компьютере
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -157,6 +158,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     if pcols and "panel_code" not in pcols:  # миграция v2 → v3: панель профиля
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_code TEXT")
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_basis TEXT NOT NULL DEFAULT 'custom'")
+    ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "is_master" not in ucols:  # миграция v6 → v7: роль мастера базы (по умолчанию ни у кого)
+        conn.execute("ALTER TABLE users ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0 CHECK (is_master IN (0,1))")
     conn.execute("INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     conn.execute(
         "INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', ?)",

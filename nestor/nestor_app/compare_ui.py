@@ -113,6 +113,24 @@ def matches_table(matches, summary: dict) -> str:
             'порядок — по GD, затем по числу сопоставленных позиций</span><span>GD — шаги различий</span></div>')
 
 
+def tabs_html(name: str, items, active: str, *, action: str, method: str, hidden: dict) -> str:
+    """Вкладки без скриптов: кнопки формы. У гостя метод POST, чтобы профиль не попадал в адрес страницы."""
+    fields = "".join(f'<input type="hidden" name="{esc(k)}" value="{esc(v)}">' for k, v in hidden.items() if k != name)
+    buttons = "".join(
+        f'<button name="{esc(name)}" value="{esc(code)}"{" class=on" if code == active else ""}'
+        f'{" disabled" if not count and code != active else ""}>{esc(label)}<span class="n">{count}</span></button>'
+        for code, label, count in items)
+    return f'<form class="tabs" method="{method}" action="{esc(action)}">{fields}{buttons}</form>'
+
+
+DEPTH_NOTE = ('<p class="tab-note">Вкладки — по числу реально сравненных позиций. GD с разных вкладок напрямую не сравнивается: '
+              'на коротком наборе совпадение значит меньше, чем на длинном.</p>')
+
+
+def depth_tabs(summary: dict, *, action: str, method: str, hidden: dict) -> str:
+    return tabs_html("depth", summary["tiers"], summary["tier"], action=action, method=method, hidden=hidden) + DEPTH_NOTE
+
+
 def h4_hidden_note(summary: dict) -> str:
     """Записи, которые не прошли условия только из-за Y-GATA-H4 в другой шкале: в таблице их нет."""
     n = summary.get("h4_hidden", 0)
@@ -123,18 +141,20 @@ def h4_hidden_note(summary: dict) -> str:
             'исключите Y-GATA-H4.</p>')
 
 
-def results_html(matches, summary: dict, query: dict, code, basis, f: dict) -> str:
+def results_html(matches, summary: dict, query: dict, code, basis, f: dict, hidden: dict | None = None) -> str:
     observed = sum(1 for v in query.values() if mk.is_observed(v))
     missing = sum(1 for v in query.values() if v is None)
     invalid = sum(1 for v in query.values() if isinstance(v, mk.Invalid))
     accepted = (f'<p id="query-accepted" class="accepted">Профиль принят: {esc(panels.panel_label(code, basis))}; '
                 f'позиций со значением {observed}, без значения {missing}, не распознано {invalid}.</p>')
-    if not matches:
+    found_any = bool(summary.get("tiers") and summary["tiers"][0][2])
+    if not found_any:
         body = (f'<p class="empty" id="no-matches">Совпадений при GD ≤ {esc(f["max_gd"])} и не меньше '
                 f'{esc(f["min_common"])} общих позиций нет. Попробуйте увеличить «Макс. GD» или уменьшить '
                 '«Общих позиций от»: научные записи часто короче Y111.</p>')
     else:
-        body = matches_table(matches, summary)
+        body = (depth_tabs(summary, action="/compare", method="post", hidden=hidden or {})
+                + (matches_table(matches, summary) if matches else '<p class="empty">На этой вкладке совпадений нет.</p>'))
     return (f'<div class="card flush"><div class="card-head"><h2>Найденные совпадения</h2>'
             f'<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>{accepted}'
             '<p class="note">Непроверенные данные: источники не допущены в справочник NeSToR, право на повторное '

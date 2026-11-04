@@ -89,6 +89,22 @@ def end_session(conn: sqlite3.Connection, token: str | None) -> None:
         conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
 
 
+def is_master(conn: sqlite3.Connection, user_id: int) -> bool:
+    row = conn.execute("SELECT is_master FROM users WHERE id = ?", (user_id,)).fetchone()
+    return bool(row and row["is_master"])
+
+
+def set_master(conn: sqlite3.Connection, email: str, enabled: bool) -> None:
+    """Выдать или снять роль мастера. Вызывается только из командной строки, не из веб-интерфейса."""
+    cur = conn.execute("UPDATE users SET is_master = ? WHERE email = ?", (1 if enabled else 0, email.strip()))
+    if cur.rowcount == 0:
+        raise AuthError("пользователь с таким email не найден")
+
+
+def list_masters(conn: sqlite3.Connection) -> list[str]:
+    return [r["email"] for r in conn.execute("SELECT email FROM users WHERE is_master = 1 ORDER BY email")]
+
+
 def delete_account(conn: sqlite3.Connection, user_id: int) -> None:
     """Удаляет учётную запись и каскадно все её профили, маркеры, согласия и запросы."""
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 import email.parser
 import email.policy
 
-from . import compare_ui
+from . import compare_ui, master_ui
 from . import accounts, contacts, panels
 from . import importer as im
 from . import backups, staging
@@ -85,6 +85,30 @@ details summary{cursor:pointer;color:var(--blue);font-size:12px;margin-top:6px;l
 summary.btn{display:inline-block;border:1px solid var(--line);border-radius:7px;padding:7px 12px;color:var(--ink);font-size:13px;margin:0}
 .drop{background:#fbfcfc;border:1px solid var(--line);border-radius:7px;padding:10px 12px;margin-top:8px;min-width:260px;max-width:380px}
 .scroll{overflow-x:auto}
+.tabs{display:flex;flex-wrap:wrap;gap:0 20px;border-bottom:1px solid var(--line);margin:10px 0 0} .card.flush .tabs{padding:0 18px}
+.tabs button{border:0;border-radius:0;background:none;padding:9px 0;color:var(--muted);font-size:12px;white-space:nowrap} .tabs button:hover:not(:disabled){color:var(--blue)}
+.tabs button.on{color:var(--blue);font-weight:600;box-shadow:inset 0 -2px 0 var(--blue)} .tabs button:disabled{opacity:.5;cursor:default}
+.tabs .n{font-size:10px;font-weight:500;background:#edf2f4;border-radius:4px;padding:1px 4px;margin-left:5px;color:#637581}
+.tab-note{font-size:11px;color:var(--muted);margin:8px 0}
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:22px;margin:14px 0 18px} .page-head .lead{margin:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat{padding:12px 16px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)} .stat .eyebrow{margin:0 0 6px}
+.stat .value{display:block;font-size:28px;letter-spacing:-.04em;line-height:1.25;font-weight:660;font-variant-numeric:tabular-nums}
+.stat .desc{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:var(--muted)} .trend{color:var(--green);font-weight:500}
+.columns{display:grid;grid-template-columns:minmax(0,1fr) 282px;gap:20px;margin-top:16px} .columns>*{min-width:0}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:18px}
+.panel-title{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px 12px} .panel-title h2{font-size:17px;margin:0;letter-spacing:-.02em}
+.panel-body{padding:0 18px 18px} .panel h3{font-size:14px;margin:0} .panel .sub{font-size:12px;margin-top:6px}
+.panel table{font-size:12px} .panel th{font-size:10px} .panel td,.panel th{padding-left:10px;padding-right:10px} .panel .time{white-space:nowrap;font:11px var(--mono)}
+table.sources{table-layout:fixed;min-width:480px} table.sources td{overflow-wrap:anywhere} table.sources th:nth-child(1),table.sources td:nth-child(1){width:46%} table.sources th:nth-child(2),table.sources td:nth-child(2){width:13%} table.sources th:nth-child(3),table.sources td:nth-child(3){width:19%} table.sources .num{font-variant-numeric:tabular-nums}
+.state{display:inline-block;padding:3px 7px;background:#edf1f4;border-radius:4px;font-size:10px;color:#637581;white-space:nowrap}
+.state.green{background:#eaf4ee;color:var(--green)} .state.amber{background:#fbf2e3;color:var(--amber)} .state.red{background:#faeded;color:var(--red)}
+.status-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px} .status-line .count{font-size:12px;font-weight:600;margin-right:10px}
+.more{margin-top:4px} .mini-label{font:9px var(--mono);text-transform:uppercase;letter-spacing:.13em;color:#98a2a9;margin:0 0 8px}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #edf1f3} .settings-row p{margin:0;font-size:12px;font-weight:550}
+.caption{font-size:11px;color:#8a969f;margin:12px 0 0;line-height:1.6}
+@media (max-width:1050px){.columns{grid-template-columns:minmax(0,1fr) 245px}}
+@media (max-width:760px){nav{gap:0 18px}nav a{padding:9px 0 8px}.page-head{flex-direction:column;align-items:flex-start;gap:12px}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat .value{font-size:24px}.columns{grid-template-columns:minmax(0,1fr);gap:0}}
 .foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding:12px 18px;border-top:1px solid var(--line)}
 .accepted{color:var(--green);font-size:13px} .note{font-size:12px;color:var(--amber)} .empty{padding:18px!important;color:var(--muted)}
 .footnote{font-size:12px;color:var(--muted);margin-top:4px}
@@ -274,6 +298,8 @@ class _Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         links = [("/compare", "Сравнение с научными данными"), ("/", "Поиск по профилям")]
         links += [("/me", "Мои профили")] if sess else [("/login", "Войти"), ("/register", "Регистрация")]
+        if sess and accounts.is_master(self.nestor.conn, sess[0]):
+            links.append(("/master", "Состояние базы"))
         nav = "".join(f'<a href="{h}"{" class=on" if (path == h or (h == "/" and path == "/guest/search")) else ""}>{esc(t)}</a>'
                       for h, t in links)
         right = (f'<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" '
@@ -324,6 +350,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._login_form(sess)
         if path == "/me":
             return self._me(sess)
+        if path == "/master":
+            return self._master(sess)
         if path == "/profiles/new":
             return self._new_profile_form(sess)
         if path == "/import":
@@ -373,6 +401,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/logout":
             accounts.end_session(self.nestor.conn, token)
             return self._redirect("/", [("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")])
+        if path == "/master/backup":
+            return self._master_backup(sess)
         if path == "/profiles/new":
             return self._create_profile(uid, form)
         if path == "/import":
@@ -421,6 +451,29 @@ class _Handler(BaseHTTPRequestHandler):
             contacts.decide(self.nestor.conn, uid, int(m.group(1)), m.group(2) == "accept", form.get("reply"))
             return self._redirect("/me")
         self._error("страница не найдена", sess, 404)
+
+    def _master_allowed(self, sess) -> bool:
+        """Гостя — ко входу; вошедшему без роли — как несуществующий адрес, чтобы страница себя не выдавала."""
+        if not sess:
+            self._redirect("/login")
+            return False
+        if not accounts.is_master(self.nestor.conn, sess[0]):
+            self._error("страница не найдена", sess, 404)
+            return False
+        return True
+
+    def _master(self, sess):
+        if self._master_allowed(sess):
+            self._page("Состояние базы", master_ui.page_html(master_ui.collect(self.nestor), sess[1]), sess)
+
+    def _master_backup(self, sess):
+        if not self._master_allowed(sess):
+            return
+        try:
+            backups.make_backup(self.nestor.settings.users_db, self.nestor.settings.var_dir / "backups")
+        except FileExistsError:
+            raise ValueError("копия только что создана, повторите через секунду") from None
+        self._redirect("/master")
 
     def _login_redirect(self, uid: int):
         token, _ = accounts.create_session(self.nestor.conn, uid)
@@ -500,6 +553,18 @@ class _Handler(BaseHTTPRequestHandler):
         return ("<table><tr><th>Профиль</th><th>GD</th><th>Локусы: сравнено из общих позиций панелей</th><th>Никнейм</th>"
                 "<th>Дальний предок</th><th></th></tr>" + "".join(rows) + "</table>")
 
+    def _panel_section(self, base, tabs, tab, *, action, method, hidden, contact_csrf=None) -> str:
+        """Вкладки профилей: «Все» по общему порогу и панели FTDNA / Генопоиска с GD только по локусам панели."""
+        active = tab if tab == search.TAB_ALL or tab in tabs else search.default_panel_tab(tabs)
+        items = [(search.TAB_ALL, "Все", len(base))]
+        items += [(c, panels.get_panel(c).title.replace("Genopoisk", "Генопоиск"), len(tabs[c])) for c in search.PANEL_TABS]
+        note = ('<p class="tab-note">На вкладке панели GD считается только по её локусам, нужно не меньше '
+                f'{int(search.PANEL_MIN_SHARE * 100)}% позиций панели. Значения разных лабораторий '
+                'сравниваются без поправок шкалы.</p>')
+        shown = base if active == search.TAB_ALL else tabs[active]
+        return (compare_ui.tabs_html("tab", items, active, action=action, method=method, hidden=hidden)
+                + note + self._match_table(shown, contact_csrf=contact_csrf))
+
     def _guest_search(self, sess, form):
         text = form.get("markers", "")
         try:
@@ -513,13 +578,19 @@ class _Handler(BaseHTTPRequestHandler):
         res = search.guest_search(self.nestor.conn, self.nestor.secret, query,
                                   max_gd=max_gd, min_common=min_common,
                                   excluded_loci=self._excluded_list(excluded))
+        tabs = search.panel_tabs(self.nestor.conn, query, max_gd=max_gd, viewer="guest",
+                                 excluded_loci=self._excluded_list(excluded),
+                                 only_handles={m.handle for m in res.matches})
+        hidden = {"markers": text, "panel": panel, "max_gd": max_gd, "min_common": min_common, "excluded": excluded,
+                  "tab": form.get("tab", ""), "depth": form.get("depth", "")}
         content = (f'<div class="card"><h2>Гостевая выборка</h2>'
                    f'<p class="muted">Показаны случайные {int(res.shown_fraction*100)}% подходящих совпадений, '
                    f'отсортированные по GD. Ваш профиль не сохранён. Зарегистрируйтесь, загрузите профиль и '
                    f'включите сопоставление, чтобы видеть полный список и отправлять запросы на связь.</p>'
                    f'{self._accepted_note(query, code, basis, max_gd, min_common, len(res.matches))}'
-                   f'{self._match_table(res.matches)}</div>'
-                   + self._catalog_block(query, max_gd, min_common, excluded)
+                   f'{self._panel_section(res.matches, tabs, form.get("tab"), action="/guest/search", method="post", hidden=hidden)}</div>'
+                   + self._catalog_block(query, max_gd, min_common, excluded, depth=form.get("depth"),
+                                         action="/guest/search", method="post", hidden=hidden)
                    + self._search_form(text, max_gd, min_common, excluded, panel))
         self._page("Результаты", content, sess)
 
@@ -555,9 +626,10 @@ class _Handler(BaseHTTPRequestHandler):
                 matches, summary = cat.compare_summary(query, max_gd=max_gd, min_common=min_common,
                                              excluded=self._excluded_list(f.get("excluded", "")),
                                              country=f.get("country") or None, source=f.get("source") or None,
-                                             kind=f.get("kind") or None, text=f.get("text") or None)
+                                             kind=f.get("kind") or None, text=f.get("text") or None,
+                                             depth=f.get("depth") or None)
                 content = compare_ui.results_html(matches, summary, query, code, basis,
-                                                  {"max_gd": max_gd, "min_common": min_common})
+                                                  {"max_gd": max_gd, "min_common": min_common}, hidden=f)
             except ValueError as e:
                 error = str(e)
         page = head + compare_ui.form_html(f, facets, self._panel_select(panel), error) + content + compare_ui.FOOTNOTE
@@ -796,14 +868,15 @@ class _Handler(BaseHTTPRequestHandler):
                 f'(сумма N = {c["aggregated_observations"]}; это гаплотипы с численностью, а не люди); '
                 f'источников {c["sources"]}. Выключить: <code>{esc(catalog_command())} disable</code>.</p>')
 
-    def _catalog_block(self, query, max_gd, min_common, excluded) -> str:
+    def _catalog_block(self, query, max_gd, min_common, excluded, *, depth=None, action, method, hidden) -> str:
         cat = self.nestor.test_catalog()
         if cat is None:
             return ""
         matches, summary = cat.compare_summary(query, max_gd=max_gd, min_common=min_common,
-                                               excluded=self._excluded_list(excluded))
-        body = (compare_ui.matches_table(matches, summary) if matches
-                else '<p class="empty">Совпадений в тестовом каталоге нет.</p>')
+                                               excluded=self._excluded_list(excluded), depth=depth or None)
+        body = ((compare_ui.depth_tabs(summary, action=action, method=method, hidden=hidden)
+                 + (compare_ui.matches_table(matches, summary) if matches else '<p class="empty">На этой вкладке совпадений нет.</p>'))
+                if summary["tiers"][0][2] else '<p class="empty">Совпадений в тестовом каталоге нет.</p>')
         return ('<div class="card flush"><div class="card-head"><h2>Научный тестовый каталог</h2>'
                 '<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>'
                 '<p class="note">Непроверенные данные: каталог собран из двух научных снимков только для '
@@ -824,11 +897,18 @@ class _Handler(BaseHTTPRequestHandler):
                                           excluded_loci=self._excluded_list(excluded))
         except (ValueError, search.SearchError) as e:
             return self._error(str(e), sess)
+        own = pr.get_owned(self.nestor.conn, sess[0], pid)
+        tabs = search.panel_tabs(self.nestor.conn, own.markers, max_gd=max_gd, viewer="registered",
+                                 exclude_owner=sess[0], excluded_loci=self._excluded_list(excluded))
+        depth, tab = q.get("depth", [""])[0], q.get("tab", [""])[0]
+        hidden = {"max_gd": max_gd, "min_common": min_common, "excluded": excluded, "tab": tab, "depth": depth}
+        action = f"/profiles/{pid}/matches"
         content = (f'<div class="card"><h2>Совпадения</h2>'
                    f'<form method="get"><p>GD ≤ <input type="text" name="max_gd" value="{max_gd}" size="3"> '
                    f'сравнено (вошло в GD) ≥ <input type="text" name="min_common" value="{min_common}" size="3"> '
                    f'исключить локусы <input type="text" name="excluded" value="{esc(excluded)}" size="25"> '
                    f'<button>Обновить</button></p></form>{self._legend()}'
-                   f'{self._match_table(matches, contact_csrf=sess[1])}</div>'
-                   + self._catalog_block(pr.get_owned(self.nestor.conn, sess[0], pid).markers, max_gd, min_common, excluded))
+                   f'{self._panel_section(matches, tabs, tab, action=action, method="get", hidden=hidden, contact_csrf=sess[1])}</div>'
+                   + self._catalog_block(own.markers, max_gd, min_common, excluded, depth=depth,
+                                         action=action, method="get", hidden=hidden))
         self._page("Совпадения", content, sess)
