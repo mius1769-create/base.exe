@@ -229,8 +229,10 @@ def _run_app_once(python: str, app_root: Path, var_dir: Path, queries: dict, tim
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    proc = subprocess.Popen([python, str(app_root / "run_nestor.py"), "--no-browser", "--port", str(port),
-                             "--var-dir", str(var_dir)], cwd=str(app_root), env=env,
+    import sys
+    from .config import FROZEN
+    app = [sys.executable] if FROZEN else [python, str(app_root / "run_nestor.py")]   # NeSToR.exe — сам себя
+    proc = subprocess.Popen(app + ["--no-browser", "--port", str(port), "--var-dir", str(var_dir)], cwd=str(app_root), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + timeout
@@ -271,6 +273,7 @@ def _run_app_once(python: str, app_root: Path, var_dir: Path, queries: dict, tim
 
 def verify_ui(var_dir: Path, app_root: Path, python: str, *, leave_enabled: bool = True) -> dict:
     """Включён → перезапуск → всё ещё включён → выключение → нет в интерфейсе → (снова включить)."""
+    var_dir = Path(var_dir).resolve()   # приложение запускается с другой рабочей папкой
     if not tc.catalog_path(var_dir).exists():
         raise ReleaseError("каталог не собран")
     queries = _sample_queries(var_dir)

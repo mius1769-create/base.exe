@@ -99,7 +99,13 @@ class TestUi(Base):
         self.assertTrue(res["ok"], res)
         self.assertTrue(res["final_enabled"])
         self.assertTrue(res["runs"]["restarted"]["aggregated"]["aggregate_with_n"])
-        res = cr.verify_ui(self.var, ROOT, sys.executable, leave_enabled=False)
+        import os
+        cwd = os.getcwd()
+        os.chdir(self.d)
+        try:                                                         # относительный путь к данным
+            res = cr.verify_ui(Path("var"), ROOT, sys.executable, leave_enabled=False)
+        finally:
+            os.chdir(cwd)
         self.assertTrue(res["ok"])
         self.assertFalse(tc.is_enabled(self.var))
 

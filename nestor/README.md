@@ -21,6 +21,32 @@
 
 Решения и список ожидающего архива — в [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## NeSToR.exe (без установки Python)
+
+`NeSToR.exe` собирается в GitHub Actions (workflow «NeSToR exe», PyInstaller, один файл) и
+проверяется там же, в том числе от обычной учётной записи. В exe только код и `data/*.json`
+приложения: баз, научного каталога и данных в нём нет. Файл не подписан: при первом
+запуске Windows SmartScreen может показать «Windows защитил ваш компьютер» — «Подробнее»
+→ «Выполнить в любом случае» (сверьте SHA-256 из `NeSToR.exe.sha256`).
+
+* Двойной щелчок — сервер на `http://127.0.0.1:8765/` и браузер; окно консоли не закрывать,
+  остановить — Ctrl+C.
+* Данные: `%LOCALAPPDATA%\NeSToR\var` (своя папка у каждой учётной записи; права
+  администратора не нужны). Другая папка — `NeSToR.exe --var-dir D:\nestor-data`.
+* Тестовый каталог (команды те же, что у `tools/build_test_catalog.py`):
+
+```powershell
+.\NeSToR.exe catalog build-release --release "C:\Data\Genopoisk_expert_linux_2026-10-14.tar.gz" --candidate "C:\Data\Nestor_scientific_YSTR.db" --enable
+```
+
+```powershell
+.\NeSToR.exe catalog verify-ui
+```
+
+```powershell
+.\NeSToR.exe catalog disable
+```
+
 ## Запуск на Windows
 
 Нужен Python 3.10 или новее с python.org (тесты проверены на 3.10, 3.11, 3.13) (при установке отметить «Add python.exe to PATH»).

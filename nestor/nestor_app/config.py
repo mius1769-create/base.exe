@@ -4,10 +4,29 @@ from __future__ import annotations
 
 import os
 import secrets
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-NESTOR_ROOT = Path(__file__).resolve().parent.parent
+NESTOR_ROOT = Path(__file__).resolve().parent.parent   # код и data/ (в NeSToR.exe — распакованная сборка)
+FROZEN = bool(getattr(sys, "frozen", False))           # запущен NeSToR.exe (PyInstaller)
+
+
+def default_var_dir() -> Path:
+    """Папка данных по умолчанию: nestor/var; у NeSToR.exe — %LOCALAPPDATA%\\NeSToR\\var.
+
+    Временная папка распаковки exe удаляется после выхода, поэтому данные exe хранятся
+    в локальном профиле пользователя (права администратора не нужны).
+    """
+    if FROZEN:
+        local = windows_local_appdata() or (Path(os.environ["LOCALAPPDATA"]) if os.environ.get("LOCALAPPDATA") else None)
+        return (local or Path(sys.executable).resolve().parent) / "NeSToR" / "var"
+    return NESTOR_ROOT / "var"
+
+
+def catalog_command() -> str:
+    """Как вызвать команды тестового каталога в этой установке (для подсказок)."""
+    return "NeSToR.exe catalog" if FROZEN else "py -3 tools/build_test_catalog.py"
 
 # Доля совпадений, которую видит гость (только среди профилей с разрешённым поиском).
 GUEST_FRACTION = 0.20
@@ -80,7 +99,7 @@ def default_staging_dir(var_dir: Path) -> Path:
 
 
 def load_settings(var_dir: str | os.PathLike | None = None) -> Settings:
-    base = Path(var_dir or os.environ.get("NESTOR_VAR_DIR") or NESTOR_ROOT / "var")
+    base = Path(var_dir or os.environ.get("NESTOR_VAR_DIR") or default_var_dir())
     base.mkdir(parents=True, exist_ok=True)
     return Settings(
         var_dir=base,

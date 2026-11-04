@@ -1,0 +1,129 @@
+name: NeSToR exe
+
+# Сборка NeSToR.exe (PyInstaller, один файл) для локального тестирования на Windows.
+# В exe только код и data/*.json приложения: без баз, научного каталога и данных.
+# Артефакт хранится в Actions 7 дней и не публикуется как релиз.
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["nestor/**", ".github/workflows/nestor-exe.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: nestor
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build NeSToR.exe
+        run: |
+          $ErrorActionPreference = "Stop"
+          python -m pip install --disable-pip-version-check pyinstaller==6.11.1
+          python -m PyInstaller --noconfirm --onefile --console --name NeSToR `
+            --add-data "data;data" --collect-submodules nestor_app run_nestor.py
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
+          $exe = Resolve-Path dist\NeSToR.exe
+          $sha = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  NeSToR.exe" | Out-File -Encoding ascii dist\NeSToR.exe.sha256
+          Write-Output "NeSToR.exe SHA-256: $sha  size: $((Get-Item $exe).Length)"
+
+      - name: Smoke test (runner account)
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Resolve-Path dist\NeSToR.exe
+          $var = Join-Path $env:RUNNER_TEMP "exe-var"
+          python tests\synthetic_release.py "$env:RUNNER_TEMP\release" | Out-Null
+          & $exe --check-staging --var-dir $var
+          if ($LASTEXITCODE -ne 0) { throw "check-staging failed" }
+          & $exe catalog build-release --release "$env:RUNNER_TEMP\release\Synthetic_expert.zip" `
+            --candidate "$env:RUNNER_TEMP\release\Synthetic_candidate.db" `
+            --expected-file "$env:RUNNER_TEMP\release\expected.json" --enable --var-dir $var
+          if ($LASTEXITCODE -ne 0) { throw "catalog build-release failed" }
+          & $exe catalog verify-ui --var-dir $var
+          if ($LASTEXITCODE -ne 0) { throw "catalog verify-ui failed" }
+          # гостевой поиск: 111 значений через пробел с панелью FTDNA Y111, Origin localhost
+          $p = Start-Process -FilePath $exe -ArgumentList @("--no-browser", "--port", "8791", "--var-dir", $var) -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+              try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8791/ | Out-Null; $ok = $true } catch { Start-Sleep 1 }
+            }
+            if (-not $ok) { throw "exe server did not start" }
+            $vals = (1..111 | ForEach-Object { 10 + (($_ - 1) * 7) % 9 }) -join " "
+            $body = @{ markers = $vals; panel = "FTDNA_Y111"; max_gd = "4"; min_common = "12" }
+            $r = Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:8791/guest/search `
+                   -Headers @{ Origin = "http://localhost:8791" } -Body $body
+            $html = [System.Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
+            if ($html -notmatch "FTDNA Y111 \(") { throw "flat Y111 search not accepted" }
+            if ($html -match "query-accepted") { Write-Output "guest search via exe: profile accepted" } else { throw "no accepted note" }
+            try {
+              Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:8791/guest/search `
+                -Headers @{ Origin = "http://evil.example" } -Body $body | Out-Null
+              throw "foreign origin was accepted"
+            } catch [System.Net.WebException] { Write-Output "foreign origin rejected: $($_.Exception.Response.StatusCode)" }
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+
+      # Обычная учётная запись (не администратор): сборка каталога и интерфейс через exe,
+      # папка данных по умолчанию — %LOCALAPPDATA%\NeSToR\var этой учётной записи.
+      - name: Smoke test (unprivileged user)
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "C:\nestor_exe_ci"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          icacls $out /grant "*S-1-5-32-545:(OI)(CI)M" | Out-Null
+          Copy-Item nestor\dist\NeSToR.exe "$out\NeSToR.exe"
+          Copy-Item -Recurse "$env:RUNNER_TEMP\release" "$out\release"
+          $pw = "Nq7!" + [guid]::NewGuid().ToString("N").Substring(0, 16) + "aZ"
+          Write-Host "::add-mask::$pw"
+          $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+          try {
+            New-LocalUser -Name "nestor_exe" -Password $sec -AccountNeverExpires -PasswordNeverExpires | Out-Null
+            Add-LocalGroupMember -SID "S-1-5-32-545" -Member "nestor_exe" | Out-Null
+            if (Get-LocalGroupMember -SID "S-1-5-32-544" | Where-Object { $_.Name -like "*\nestor_exe" }) { throw "admin" }
+            $cred = New-Object System.Management.Automation.PSCredential(".\nestor_exe", $sec)
+            $runs = @(
+              @("catalog", "build-release", "--release", "$out\release\Synthetic_expert.tar.gz",
+                "--candidate", "$out\release\Synthetic_candidate.db", "--expected-file", "$out\release\expected.json", "--enable"),
+              @("catalog", "verify-ui"),
+              @("catalog", "status"))
+            $n = 0
+            foreach ($a in $runs) {
+              $n++
+              $p = Start-Process -FilePath "$out\NeSToR.exe" -ArgumentList $a -Credential $cred -LoadUserProfile `
+                     -WorkingDirectory $out -RedirectStandardOutput "$out\r$n.out" -RedirectStandardError "$out\r$n.err" -Wait -PassThru
+              Write-Output "===== $($a -join ' ') (exit $($p.ExitCode)) ====="
+              Get-Content "$out\r$n.out" -Encoding UTF8 | Select-Object -Last 3
+              Get-Content "$out\r$n.err" -Encoding UTF8 | Select-Object -Last 5
+              if ($p.ExitCode -ne 0) { throw "run $n failed" }
+            }
+            $status = Get-Content -Raw "$out\r3.out" -Encoding UTF8 | ConvertFrom-Json
+            if (-not $status.enabled -or $status.path -notlike "*\nestor_exe\AppData\Local\NeSToR\var\*") { throw "unexpected data folder: $($status.path)" }
+            Write-Output "data folder of unprivileged user: $($status.path)"
+          } finally {
+            Remove-LocalUser -Name "nestor_exe" -ErrorAction SilentlyContinue
+            Get-CimInstance Win32_UserProfile | Where-Object { $_.LocalPath -match "\\nestor_exe" } |
+              Remove-CimInstance -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $out
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeSToR-exe
+          path: |
+            nestor/dist/NeSToR.exe
+            nestor/dist/NeSToR.exe.sha256
+          retention-days: 7
+          if-no-files-found: error

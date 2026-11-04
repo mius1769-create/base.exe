@@ -1,4 +1,8 @@
-"""Локальный запуск NeSToR: python run_nestor.py  →  http://127.0.0.1:8765/"""
+"""Локальный запуск NeSToR: python run_nestor.py  →  http://127.0.0.1:8765/
+
+Тот же вход у NeSToR.exe: без аргументов — сервер и браузер; `NeSToR.exe catalog …` —
+команды локального тестового каталога (как tools/build_test_catalog.py).
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,9 @@ from nestor_app.web import NestorApp  # noqa: E402
 def main() -> None:
     from nestor_app.cli import utf8_output
     utf8_output()
+    if len(sys.argv) > 1 and sys.argv[1] == "catalog":
+        from nestor_app.catalog_cli import main as catalog_main
+        raise SystemExit(catalog_main(sys.argv[2:]))
     ap = argparse.ArgumentParser(description="NeSToR — локальный MVP (только 127.0.0.1)")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--var-dir", default=None, help="папка для nestor_users.db и секрета (по умолчанию nestor/var)")
@@ -39,6 +46,7 @@ def main() -> None:
     server = app.make_server()
     url = f"http://{settings.host}:{settings.port}/"
     print(f"NeSToR запущен: {url}  (база: {settings.users_db})")
+    print(f"Папка данных: {settings.var_dir}")
     if app.staging_check.ok:
         print(f"Временные загрузки: {app.staging_dir} (доступ только текущему пользователю — проверено)")
     else:

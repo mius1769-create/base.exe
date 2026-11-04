@@ -8,3 +8,7 @@ var/
 data/*.db
 # синтетические файлы форматов (не данные): tests/fixtures/formats/README.txt
 !tests/fixtures/formats/*.xlsx
+# сборка NeSToR.exe (PyInstaller) — только в CI, не в git
+dist/
+build/
+*.spec

@@ -26,7 +26,7 @@ from .db import checkpoint_truncate
 from . import markers as mk
 from . import profiles as pr
 from . import reference, search
-from .config import default_staging_dir
+from .config import catalog_command, default_staging_dir
 from .config import DEFAULT_MAX_GD, DEFAULT_MIN_COMMON, GUEST_FRACTION, Settings, load_or_create_secret
 from .db import connect
 
@@ -707,13 +707,13 @@ class _Handler(BaseHTTPRequestHandler):
         cat = self.nestor.test_catalog()
         if cat is None:
             return ('<p class="muted" id="test-catalog-status">Научный тестовый каталог: <b>выключен</b>. '
-                    'Включить: <code>py -3 tools/build_test_catalog.py enable</code>.</p>')
+                    f'Включить: <code>{esc(catalog_command())} enable</code>.</p>')
         c = cat.counts
         return ('<p class="warn" id="test-catalog-status">Научный тестовый каталог: <b>включён</b> — '
                 f'ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ, непроверенные данные. Записей {c["records"]}: индивидуальных '
                 f'{c["individual_records"]}, агрегированных наблюдений {c["aggregated_records"]} '
                 f'(сумма N = {c["aggregated_observations"]}; это гаплотипы с численностью, а не люди); '
-                f'источников {c["sources"]}. Выключить: <code>py -3 tools/build_test_catalog.py disable</code>.</p>')
+                f'источников {c["sources"]}. Выключить: <code>{esc(catalog_command())} disable</code>.</p>')
 
     def _catalog_block(self, query, max_gd, min_common, excluded) -> str:
         cat = self.nestor.test_catalog()
@@ -743,7 +743,7 @@ class _Handler(BaseHTTPRequestHandler):
                 'локального тестирования: источники не допущены в справочник NeSToR, право на повторное '
                 'использование не подтверждено, шкалы аллелей источников не откалиброваны — все GD предварительные. '
                 'Агрегированные наблюдения — гаплотипы с численностью N, а не отдельные люди. Отключение: '
-                '<code>py -3 tools/build_test_catalog.py disable</code>.</p>' + summary + table + '</div>')
+                f'<code>{esc(catalog_command())} disable</code>.</p>' + summary + table + '</div>')
 
     def _owner_matches(self, sess, pid):
         if not sess:
