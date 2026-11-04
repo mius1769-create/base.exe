@@ -88,11 +88,33 @@ def _source(m) -> str:
             f'<br><span class="muted">{esc(m.source_id)}</span></p><table class="mini kv">{body}</table></div></details>')
 
 
+def matches_table(matches, summary: dict) -> str:
+    """Таблица совпадений с каталогом и итог: общая для /compare и раздела каталога в поиске."""
+    rows = []
+    for m in matches:
+        kind = ("индивидуальная запись" if m.record_kind != "aggregated"
+                else f"агрегированное наблюдение, N={m.observed_n}")
+        place = " · ".join(x for x in (m.country, m.population) if x and x != m.country) or (m.country or "—")
+        rows.append(
+            f'<tr><td><b>{esc(m.sample_id)}</b><div class="sub">{esc(place)}</div>'
+            f'<span class="tag{" tag-agg" if m.record_kind == "aggregated" else ""}">{esc(kind)}</span></td>'
+            f'<td><span class="{gd_class(m.gd)}">GD {m.gd}</span><div class="sub">(предварительно)</div>{_differences(m)}</td>'
+            f'<td><b>{m.compared}</b> позиций<div class="sub">из {m.panel_overlap} общих</div></td>'
+            f'<td>{esc(m.haplogroup) or "Не указан"}<div><span class="tag">{esc(m.verification_status.split(" (")[0])}</span></div></td>'
+            f'<td>{_source(m)}</td></tr>')
+    total = summary["total"]
+    more = f" · показаны первые {len(matches)}" if total > len(matches) else ""
+    return ('<div class="scroll"><table class="results"><tr><th>Образец / популяция</th><th>Дистанция</th><th>Сопоставлено</th>'
+            '<th>Субклад / статус</th><th></th></tr>' + "".join(rows) + "</table></div>"
+            f'<div class="foot"><span id="found">Найдено {total}: индивидуальных записей {summary["individual"]}, '
+            f'агрегированных наблюдений {summary["aggregated"]} (сумма N = {summary["aggregated_n"]}){more}; '
+            'порядок — по GD, затем по числу сопоставленных позиций</span><span>GD — шаги различий</span></div>')
+
+
 def results_html(matches, summary: dict, query: dict, code, basis, f: dict) -> str:
     observed = sum(1 for v in query.values() if mk.is_observed(v))
     missing = sum(1 for v in query.values() if v is None)
     invalid = sum(1 for v in query.values() if isinstance(v, mk.Invalid))
-    total = summary["total"]
     accepted = (f'<p id="query-accepted" class="accepted">Профиль принят: {esc(panels.panel_label(code, basis))}; '
                 f'позиций со значением {observed}, без значения {missing}, не распознано {invalid}.</p>')
     if not matches:
@@ -100,24 +122,7 @@ def results_html(matches, summary: dict, query: dict, code, basis, f: dict) -> s
                 f'{esc(f["min_common"])} общих позиций нет. Попробуйте увеличить «Макс. GD» или уменьшить '
                 '«Общих позиций от»: научные записи часто короче Y111.</p>')
     else:
-        rows = []
-        for m in matches:
-            kind = ("индивидуальная запись" if m.record_kind != "aggregated"
-                    else f"агрегированное наблюдение, N={m.observed_n}")
-            place = " · ".join(x for x in (m.country, m.population) if x and x != m.country) or (m.country or "—")
-            rows.append(
-                f'<tr><td><b>{esc(m.sample_id)}</b><div class="sub">{esc(place)}</div>'
-                f'<span class="tag{" tag-agg" if m.record_kind == "aggregated" else ""}">{esc(kind)}</span></td>'
-                f'<td><span class="{gd_class(m.gd)}">GD {m.gd}</span><div class="sub">предварительно</div>{_differences(m)}</td>'
-                f'<td><b>{m.compared}</b> позиций<div class="sub">из {m.panel_overlap} общих</div></td>'
-                f'<td>{esc(m.haplogroup) or "Не указан"}<div><span class="tag">{esc(m.verification_status.split(" (")[0])}</span></div></td>'
-                f'<td>{_source(m)}</td></tr>')
-        more = f" · показаны первые {len(matches)}" if total > len(matches) else ""
-        body = ('<div class="scroll"><table class="results"><tr><th>Образец / популяция</th><th>Дистанция</th><th>Сопоставлено</th>'
-                '<th>Субклад / статус</th><th></th></tr>' + "".join(rows) + "</table></div>"
-                f'<div class="foot"><span id="found">Найдено {total}: индивидуальных записей {summary["individual"]}, '
-                f'агрегированных наблюдений {summary["aggregated"]} (сумма N = {summary["aggregated_n"]}){more}; '
-                'порядок — по GD, затем по числу сопоставленных позиций</span><span>GD — шаги различий</span></div>')
+        body = matches_table(matches, summary)
     return (f'<div class="card flush"><div class="card-head"><h2>Найденные совпадения</h2>'
             f'<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>{accepted}'
             '<p class="note">Непроверенные данные: источники не допущены в справочник NeSToR, право на повторное '

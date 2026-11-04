@@ -800,31 +800,17 @@ class _Handler(BaseHTTPRequestHandler):
         cat = self.nestor.test_catalog()
         if cat is None:
             return ""
-        matches = cat.search(query, max_gd=max_gd, min_common=min_common, excluded=self._excluded_list(excluded))
-        rows = []
-        for m in matches:
-            kind = "индивидуальная запись" if m.record_kind == "individual" else f"агрегированное наблюдение, N={m.observed_n}"
-            quality = "; ".join(f"{k}: {v}" for k, v in m.quality) or "—"
-            rows.append(f"<tr><td>{esc(m.source_id)}</td><td>{esc(m.sample_id)}</td><td>{esc(m.population) or '—'}</td>"
-                        f"<td>{esc(kind)}</td><td>{m.gd} (предварительно)</td><td>сравнено {m.compared} из {m.panel_overlap}</td>"
-                        f"<td class='warn'>{esc(m.verification_status)}; {esc(m.reuse_note)}</td>"
-                        f"<td class='muted'>{esc(m.license) or '—'}</td>"
-                        f"<td class='muted'>не сравнивались: {esc(quality)}</td>"
-                        f"<td class='muted'>{esc('; '.join(m.flags)) or '—'}</td></tr>")
-        ind = sum(1 for m in matches if m.record_kind != "aggregated")
-        agg = [m for m in matches if m.record_kind == "aggregated"]
-        summary = (f'<p>Найдено: индивидуальных записей {ind}; агрегированных наблюдений {len(agg)} '
-                   f'(сумма N = {sum(m.observed_n for m in agg)}) — агрегаты не считаются отдельными людьми.</p>')
-        table = ("<table><tr><th>Источник</th><th>Sample ID</th><th>Популяция</th><th>Тип</th><th>GD</th>"
-                 "<th>Локусы</th><th>Статус и права</th><th>Лицензия (как в источнике)</th><th>Качество</th>"
-                 "<th>Пометки</th></tr>" + "".join(rows) + "</table>"
-                 if rows else '<p class="muted">Совпадений в тестовом каталоге нет.</p>')
-        return ('<div class="card"><h2>Научный тестовый каталог — ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</h2>'
-                '<p class="warn"><b>Непроверенные данные.</b> Каталог собран из двух научных снимков только для '
-                'локального тестирования: источники не допущены в справочник NeSToR, право на повторное '
+        matches, summary = cat.compare_summary(query, max_gd=max_gd, min_common=min_common,
+                                               excluded=self._excluded_list(excluded))
+        body = (compare_ui.matches_table(matches, summary) if matches
+                else '<p class="empty">Совпадений в тестовом каталоге нет.</p>')
+        return ('<div class="card flush"><div class="card-head"><h2>Научный тестовый каталог</h2>'
+                '<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>'
+                '<p class="note">Непроверенные данные: каталог собран из двух научных снимков только для '
+                'локального тестирования, источники не допущены в справочник NeSToR, право на повторное '
                 'использование не подтверждено, шкалы аллелей источников не откалиброваны — все GD предварительные. '
                 'Агрегированные наблюдения — гаплотипы с численностью N, а не отдельные люди. Отключение: '
-                f'<code>{esc(catalog_command())} disable</code>.</p>' + summary + table + '</div>')
+                f'<code>{esc(catalog_command())} disable</code>.</p>' + body + '</div>')
 
     def _owner_matches(self, sess, pid):
         if not sess:
