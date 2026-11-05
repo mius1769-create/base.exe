@@ -199,7 +199,7 @@ class TestWebImport(TestWebSmoke):
             url, page = r.geturl(), r.read().decode()
         self.assertRegex(url, r"/import/[0-9a-f]{32}$")
         self.assertIn("FTDNA Y37 (распознана)", page)
-        self.assertIn("Профилей: <b>1</b>", page)
+        self.assertRegex(page, r'Профилей</div><span class="value">1</span>')
         import hashlib
         self.assertIn(hashlib.sha256(data).hexdigest(), page)
         upload = url.rsplit("/", 1)[1]

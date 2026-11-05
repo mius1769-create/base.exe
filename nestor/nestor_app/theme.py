@@ -35,6 +35,11 @@ a.quiet{font-size:12px} .panel-title a.quiet{font-size:11px} .tabs a{padding:10p
 .tabs a.active{color:var(--blue);font-weight:600} .tabs a.active:after{content:"";height:2px;position:absolute;bottom:-1px;left:0;right:0;background:var(--blue)}
 .empty{text-align:center} .card .empty,.help-body .empty{padding:18px} .form-note{margin-top:14px}
 .card{overflow-x:auto} .head-actions form{margin:0}
+.auth{max-width:440px;margin:18px auto 0} .auth h1{margin-bottom:0} .auth .sub{margin-bottom:18px}
+.forms.one{grid-template-columns:1fr} .forms label{display:flex;flex-direction:column;gap:5px} .forms .form-actions{margin-top:4px}
+.choices{display:grid;gap:8px;margin:10px 0 12px} .choices label,.choice{display:flex;align-items:flex-start;gap:8px;font-size:12px}
+.choices input,.choice input{margin:2px 0 0;flex-shrink:0} .form-actions form{margin:0}
+.page-tabs{padding:0;margin:0 0 18px} .locus span{font-size:12px} .danger{border-color:#e6c9c9}
 @media(max-width:760px){.account{display:flex;margin-left:auto}.account>span,.account .avatar{display:none}.filters>label{flex:1 1 100%}.filters.short>label:nth-child(-n+2){flex:1 1 40%}.filters>button{flex:1 1 100%}}
 """
 
@@ -60,7 +65,7 @@ DARK_RULES = """
 @ .info{background:#1d3442;color:#a6cbe0;border-color:#2c4a5c} @ .info.warm{background:#3a2f1c;color:#e0c48f;border-color:#4d3f27}
 @ .settings-row,@ .timeline-row,@ .tree-row{border-color:var(--line)} @ .switch{background:#3a4852} @ .switch:before{background:#dfe6ea}
 @ .filters,@ .drop{background:#20292f} @ code,@ pre{background:#27323a;color:var(--ink)} @ summary.btn{color:var(--ink)}
-@ .bar{background:#2c3840} @ .locus{background:#20292f} @ .predictor{background:#20292f;border-color:var(--line)}
+@ .danger{color:var(--red);border-color:#5a3535} @ .locus.review{background:#3a2f1c} @ .bar{background:#2c3840} @ .locus{background:#20292f} @ .predictor{background:#20292f;border-color:var(--line)}
 @ .chat-body{background:#182026} @ .bubble{background:#27323a} @ .bubble.self{background:var(--pale)} @ .thread.active{background:var(--pale)}
 @ .result-summary{background:var(--paper)} @ .result-summary:hover{background:#222c33}
 @ .filters label,@ .row label,@ .forms label{color:var(--muted)}

@@ -93,6 +93,30 @@ class Cabinets(unittest.TestCase):
         self.assertNotIn("МойНик", self.request("GET", "/cabinet", self.boss)[2])
         self.assertNotIn("МойНик", self.request("GET", f"/cabinet?kit={pid}", self.boss)[2])
 
+    def test_forms_keep_consent_and_design_markup(self):
+        login = self.request("GET", "/login")[2]
+        self.assertIn('class="forms one"', login)
+        self.assertIn('name="password"', login)
+        new = self.request("GET", "/profiles/new", self.user)[2]
+        for part in ('name="consent_basis"', 'name="consent_confirmed"', 'name="markers"', 'name="panel"', 'name="csrf"',
+                     'name="kit_id"', 'name="nickname_visibility"', 'name="ancestor_visibility"', "<h1>Новый результат</h1>"):
+            self.assertIn(part, new)
+        upload = self.request("GET", "/import", self.user)[2]
+        self.assertIn('enctype="multipart/form-data"', upload)
+        self.assertIn('name="file"', upload)
+
+    def test_profile_page_keeps_actions_and_hides_nothing_from_owner(self):
+        pid = pr.create_profile(self.conn, self.user, BASE_Y37, consent_basis="own_test", consent_confirmed=True, kit_id="KIT-1")
+        page = self.request("GET", f"/profiles/{pid}", self.user)[2]
+        for part in (f'action="/profiles/{pid}/searchable"', f'action="/profiles/{pid}/visibility"', f'action="/profiles/{pid}/delete"',
+                     f'/profiles/{pid}/export.json', "KIT-1", 'name="confirm"', 'class="loci"', "DYS393"):
+            self.assertIn(part, page)
+        self.assertEqual(self.request("GET", f"/profiles/{pid}", self.boss)[0], 404)
+
+    def test_error_page_has_no_blocked_script_link(self):
+        page = self.request("GET", "/no-such-page")[2]
+        self.assertNotIn("javascript:", page.split("</style>", 1)[1])
+
     def test_guest_keeps_public_menu(self):
         page = self.request("GET", "/")[2]
         self.assertIn('href="/compare"', page)

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 import email.parser
 import email.policy
 
-from . import cabinet_ui, compare_ui, master_ui, theme
+from . import cabinet_ui, compare_ui, forms_ui, master_ui, theme
 from . import accounts, contacts, panels
 from . import importer as im
 from . import backups, staging
@@ -321,7 +321,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _error(self, msg: str, sess=None, status=400):
         self._page("Ошибка", f'<div class="card"><p class="err">{esc(msg)}</p>'
-                             f'<p><a href="javascript:history.back()">Назад</a></p></div>', sess, status)
+                             '<p><a href="/">На главную</a></p></div>', sess, status)
 
     # ---------- маршрутизация ----------
     def do_GET(self):
@@ -712,18 +712,10 @@ Strelka и Y700 как отдельные форматы файлов не по�
                 f'{esc(found)}.</p>')
 
     def _register_form(self, sess):
-        self._page("Регистрация", """<div class="card"><h2>Регистрация</h2>
-<form method="post" action="/register">
-<p>Email (виден только вам, в поиске не показывается)<br><input type="email" name="email" required></p>
-<p>Пароль (не короче 8 символов)<br><input type="password" name="password" required minlength="8"></p>
-<p>Псевдоним для запросов на связь (необязательно)<br><input type="text" name="display_name" maxlength="60"></p>
-<button>Создать аккаунт</button></form></div>""", sess)
+        self._page("Регистрация", forms_ui.register_page(), sess)
 
     def _login_form(self, sess):
-        self._page("Вход", """<div class="card"><h2>Вход</h2><form method="post" action="/login">
-<p>Email<br><input type="email" name="email" required></p>
-<p>Пароль<br><input type="password" name="password" required></p>
-<button>Войти</button></form></div>""", sess)
+        self._page("Вход", forms_ui.login_page(), sess)
 
     def _me(self, sess):
         if not sess:
@@ -734,8 +726,6 @@ Strelka и Y700 как отдельные форматы файлов не по�
             state = "поиск включён" if p.searchable else "закрыт"
             items.append(f'<tr><td><a href="/profiles/{p.id}">{esc(p.public_handle)}</a></td>'
                          f'<td>{len(p.markers)}</td><td>{state}</td><td>{esc(p.created_at)}</td></tr>')
-        table = ("<table><tr><th>Профиль</th><th>Маркеров</th><th>Статус</th><th>Создан</th></tr>"
-                 + "".join(items) + "</table>") if items else '<p class="muted">Профилей пока нет.</p>'
         inc = []
         for r in contacts.incoming(self.nestor.conn, uid):
             actions = ""
@@ -752,13 +742,7 @@ Strelka и Y700 как отдельные форматы файлов не по�
                        f'<td>{esc(r["owner_reply"]) or "—"}</td></tr>')
         content = (cabinet_ui.head("Личный кабинет / результаты", "Мои результаты", "Каждый образец имеет собственную карточку.",
                                    '<a class="btn-link primary" href="/import">+ Добавить результат</a>')
-                   + f'<div class="card"><h2>Мои профили</h2>{table}<p><a href="/profiles/new">Ввести профиль вручную</a> · <a href="/import">Импорт из файла CSV / XLSX</a></p></div>'
-                   f'<div class="card"><h2>Входящие запросы на связь</h2>'
-                   + (("<table><tr><th>Профиль</th><th>От</th><th>Сообщение</th><th>Статус</th><th></th></tr>"
-                       + "".join(inc) + "</table>") if inc else '<p class="muted">Нет запросов.</p>')
-                   + '</div><div class="card"><h2>Мои запросы</h2>'
-                   + (("<table><tr><th>Профиль</th><th>Статус</th><th>Ответ владельца</th></tr>"
-                       + "".join(out) + "</table>") if out else '<p class="muted">Нет запросов.</p>') + "</div>")
+                   + forms_ui.me_tables(items, inc, out))
         self._page("Мои результаты", content, sess)
 
     @staticmethod
@@ -774,21 +758,7 @@ Strelka и Y700 как отдельные форматы файлов не по�
         if not chk.ok:
             return self._error("Загрузка файлов отключена: временный каталог не защищён — "
                                + "; ".join(chk.problems) + ". Проверка: py -3 run_nestor.py --check-staging", sess, 503)
-        self._page("Импорт из файла", f"""<div class="card"><h2>Импорт профилей из файла</h2>
-<form method="post" action="/import" enctype="multipart/form-data">
-<input type="hidden" name="csrf" value="{esc(sess[1])}">
-<p>Файл CSV (разделитель <code>;</code>, <code>,</code> или TAB) или XLSX (все листы)<br>
-<input type="file" name="file" accept=".csv,.txt,.tsv,.xlsx" required></p>
-<p>Панель {self._panel_select()}<br><span class="muted">Выбранная панель: локусы файла вне неё — ошибка листа.
-«Определить автоматически» — по заголовкам, только при надёжном совпадении; иначе — пользовательский набор.</span></p>
-<p class="muted">До вашего решения файл лежит во временной папке приложения (не в базе и не в её резервных
-копиях) и автоматически удаляется через сутки, при отмене или после сохранения. После подтверждения в базе
-остаются только выбранные строки (исходные ячейки), имя файла, лист, номера строк и SHA-256; полный файл —
-только если вы отдельно попросите его сохранить. Профили создаются закрытыми; записи не объединяются.
-Удаление относится к файлам приложения: стирание с диска (SSD), из снимков системы и ваших собственных
-копий приложение не гарантирует.
-Не более {im.MAX_FILE_BYTES // (1024 * 1024)} МБ и {im.MAX_ROWS} строк.</p>
-<button>Загрузить и проверить</button></form></div>""", sess)
+        self._page("Импорт из файла", forms_ui.import_page(sess[1], self._panel_select(), im.MAX_FILE_BYTES // (1024 * 1024), im.MAX_ROWS), sess)
 
     def _import_preview(self, sess, upload_id):
         if not sess:
@@ -815,52 +785,13 @@ Strelka и Y700 как отдельные форматы файлов не по�
                 f"<td>{esc(invalid) or '—'}</td>"
                 f"<td class='warn'>{esc('; '.join(r.flags)) or '—'}</td><td class='err'>{esc(r.error)}</td>"
                 f"<td><details><summary>ячейки</summary><code>{esc(raw)}</code></details></td></tr>")
-        basis = "".join(f'<label><input type="radio" name="consent_basis" value="{k}" required> {v}</label><br>'
-                        for k, v in BASIS_LABELS.items())
-        content = f"""<div class="card"><h2>Проверка файла {esc(prev.filename)}</h2>
-<p>SHA-256 <code>{esc(prev.sha256)}</code>, {prev.size} байт. Профилей: <b>{summ['records']}</b>,
-можно сохранить: {summ['savable']}, с пропусками: {summ['with_missing']}, с нераспознанными значениями:
-{summ['with_invalid']}, с пометками (повторы / совпадения): {summ['flagged']}.</p>
-<table><tr><th>Лист</th><th>Панель</th><th>Строка заголовков</th><th>Профилей</th><th>Пустых строк</th><th>Ошибка</th></tr>{sheet_rows}</table>
-<p class="muted">Повторы и совпадения только помечены: записи не объединяются, решаете вы.</p></div>
-<div class="card"><form method="post" action="/import/{upload_id}/commit">
-<input type="hidden" name="csrf" value="{esc(csrf)}">
-<table><tr><th></th><th>Лист:строка</th><th>ID</th><th>Значения</th><th>Без значения</th><th>Не распознано</th>
-<th>Пометки</th><th>Ошибка</th><th>Исходные ячейки</th></tr>{''.join(rows)}</table>
-<p><b>Чьи это тесты?</b><br>{basis}<label><input type="checkbox" name="consent_confirmed" value="1" required>
-Подтверждаю право загрузить выбранные профили.</label></p>
-<p class="muted">Профили будут созданы закрытыми; ID из файла сохранится как kit ID (виден только вам).
-После сохранения остаются только исходные ячейки выбранных строк, имя файла, лист, номера строк и SHA-256
-файла; сам файл удаляется.</p>
-<p><label><input type="checkbox" name="keep_original" value="1"> Дополнительно сохранить полный исходный файл
-для локального аудита (необязательно).</label><br><span class="warn">Внимание: вместе с файлом сохранятся
-<b>все</b> его строки и листы, включая профили, которые вы не выбрали. Из активной базы файл удаляется вместе
-с последним сохранённым из него профилем; в уже сделанных резервных копиях базы он остаётся до их очистки (срок хранения копий
-применяется, когда запускается очистка, и не является гарантированным максимумом).</span></p>
-<button>Сохранить выбранные</button></form>
-<form method="post" action="/import/{upload_id}/discard"><input type="hidden" name="csrf" value="{esc(csrf)}">
-<button>Отменить и удалить файл</button></form></div>"""
-        self._page("Проверка импорта", content, sess)
+        self._page("Проверка импорта", forms_ui.import_preview_page(prev, summ, upload_id, csrf, sheet_rows, "".join(rows), BASIS_LABELS), sess)
 
     def _new_profile_form(self, sess):
         if not sess:
             return self._redirect("/login")
-        basis = "".join(f'<label><input type="radio" name="consent_basis" value="{k}" required> {v}</label><br>'
-                        for k, v in BASIS_LABELS.items())
-        self._page("Новый профиль", f"""<div class="card"><h2>Загрузка профиля</h2>
-<form method="post" action="/profiles/new"><input type="hidden" name="csrf" value="{esc(sess[1])}">
-<p>Маркеры (<code>МАРКЕР=значение</code>, по одному в строке; <code>МАРКЕР=</code> — позиция без значения;
-или таблица из двух строк: заголовки и значения через <code>;</code>)<br><textarea name="markers" required></textarea></p>
-<p>Панель {self._panel_select()}<br><span class="muted">Известная панель: позиции профиля — весь её состав, неуказанные
-сохраняются как «нет значения». Пользовательский набор: позиции — только указанные локусы.</span></p>
-<p>Kit ID (необязательно; виден только вам)<br><input type="text" name="kit_id" maxlength="60"></p>
-<p><b>Чей это тест?</b><br>{basis}
-<label><input type="checkbox" name="consent_confirmed" value="1" required>
-Подтверждаю, что имею право загрузить этот профиль.</label></p>
-<p>Никнейм владельца (необязательно) <input type="text" name="nickname" maxlength="200"> видимость {self._vis_select("nickname_visibility")}</p>
-<p>Дальний предок (необязательно) <input type="text" name="ancestor_text" maxlength="200"> видимость {self._vis_select("ancestor_visibility")}</p>
-<p class="muted">Профиль будет создан <b>закрытым</b> и не будет участвовать в поиске, пока вы сами не включите сопоставление.</p>
-<button>Сохранить</button></form></div>""", sess)
+        self._page("Новый профиль", forms_ui.new_profile_page(sess[1], self._panel_select(), self._vis_select("nickname_visibility"),
+                                                              self._vis_select("ancestor_visibility"), BASIS_LABELS), sess)
 
     def _create_profile(self, uid, form):
         text = form.get("markers", "")
@@ -885,30 +816,15 @@ Strelka и Y700 как отдельные форматы файлов не по�
         best = panels.best_complete_panel(p.markers)
         def cell(v):
             if mk.is_observed(v):
-                return esc(mk.format_value(v))
-            return '<span class="muted">нет значения</span>' if v is None else f'<span class="warn">не распознано: {esc(v)}</span>'
-        marker_rows = "".join(f"<tr><td>{esc(k)}</td><td>{cell(v)}</td></tr>" for k, v in sorted(p.markers.items()))
-        n_ok = sum(1 for v in p.markers.values() if mk.is_observed(v))
-        toggle = (f'<form method="post" action="/profiles/{pid}/searchable"><input type="hidden" name="csrf" value="{esc(csrf)}">'
-                  f'<input type="hidden" name="enabled" value="{0 if p.searchable else 1}">'
-                  f'<button>{"Выключить сопоставление" if p.searchable else "Включить сопоставление"}</button></form>')
-        content = f"""<div class="card"><h2>Профиль {esc(p.public_handle)}</h2>
-<p>Статус: <b>{"поиск включён" if p.searchable else "закрыт — не участвует в поиске"}</b></p>{toggle}
-<p>Kit ID (только для вас): {esc(p.kit_id_private) or "—"}<br>
-Основание загрузки: {esc(BASIS_LABELS.get(p.consent_basis))}<br>
-Панель: {esc(panels.panel_label(p.panel_code, p.panel_basis))}{"" if p.panel_code else (" · полностью покрыта: " + esc(best) if best else "")}</p>
-<p>{"<a href='/profiles/%d/matches'>Совпадения</a> · " % pid if p.searchable else ""}<a href="/profiles/{pid}/export.json">Экспорт JSON</a></p></div>
-<div class="card"><h3>Видимость необязательных полей</h3>
-<form method="post" action="/profiles/{pid}/visibility"><input type="hidden" name="csrf" value="{esc(csrf)}">
-<p>Никнейм <input type="text" name="nickname" value="{esc(p.nickname)}" maxlength="200"> {self._vis_select("nickname_visibility", p.nickname_visibility)}</p>
-<p>Дальний предок <input type="text" name="ancestor_text" value="{esc(p.ancestor_text)}" maxlength="200"> {self._vis_select("ancestor_visibility", p.ancestor_visibility)}</p>
-<button>Сохранить</button></form></div>
-{self._source_block(pid)}
-<div class="card"><h3>Позиции профиля: {len(p.markers)}, со значением {n_ok}</h3><table>{marker_rows}</table></div>
-<div class="card"><h3>Удаление</h3><form method="post" action="/profiles/{pid}/delete">
-<input type="hidden" name="csrf" value="{esc(csrf)}"><label><input type="checkbox" name="confirm" value="1" required>
-Удалить профиль, маркеры, журнал согласий и запросы на связь без возможности восстановления</label>
-<button>Удалить</button></form></div>"""
+                return esc(mk.format_value(v)), "ok"
+            return ("нет значения", "missing") if v is None else (f"не распознано: {esc(v)}", "invalid")
+        cells = [(k, *cell(v)) for k, v in sorted(p.markers.items())]
+        n_ok = sum(1 for _, _, status in cells if status == "ok")
+        content = forms_ui.profile_page(
+            p, pid, csrf, panel_text=panels.panel_label(p.panel_code, p.panel_basis), basis_text=BASIS_LABELS.get(p.consent_basis),
+            best=None if p.panel_code else best, cells=cells, observed=n_ok,
+            nickname_vis=self._vis_select("nickname_visibility", p.nickname_visibility),
+            ancestor_vis=self._vis_select("ancestor_visibility", p.ancestor_visibility), source=self._source_block(pid))
         self._page(p.public_handle, content, sess)
 
     def _source_block(self, pid) -> str:
@@ -917,11 +833,11 @@ Strelka и Y700 как отдельные форматы файлов не по�
             return ""
         raw = json.loads(src["raw_json"])
         cells = "".join(f"<tr><td>{esc(k)}</td><td><code>{esc(v)}</code></td></tr>" for k, v in raw.items())
-        return (f'<div class="card"><h3>Происхождение</h3><p>Файл {esc(src["filename"])}, SHA-256 '
-                f'<code>{esc(src["file_sha256"])}</code>, лист {esc(src["sheet"])}, строка {src["row_number"]}'
-                f'{", ID " + esc(src["record_id"]) if src["record_id"] else ""}. '
-                f'{"Полный исходный файл сохранён по вашему согласию." if src["import_file_id"] else "Полный файл не хранится — только ячейки этой строки."}</p>'
-                f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details></div>')
+        return cabinet_ui.panel("Происхождение", (
+            f'<p class="sub">Файл {esc(src["filename"])}, SHA-256 <code>{esc(src["file_sha256"])}</code>, лист {esc(src["sheet"])}, строка {src["row_number"]}'
+            f'{", ID " + esc(src["record_id"]) if src["record_id"] else ""}. '
+            f'{"Полный исходный файл сохранён по вашему согласию." if src["import_file_id"] else "Полный файл не хранится — только ячейки этой строки."}</p>'
+            f'<details><summary>Исходные ячейки (дословно)</summary><table>{cells}</table></details>'))
 
     def _catalog_status(self) -> str:
         cat = self.nestor.test_catalog()
