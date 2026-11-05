@@ -86,8 +86,9 @@ class CellForm(unittest.TestCase):
     def test_page_has_a_cell_for_each_position_and_no_predict(self):
         page = self.request("GET", "/profiles/new")[2]
         self.assertEqual(len(re.findall(r'name="cell_', page)), len(panels.input_cells()))
-        self.assertIn('id="str-grid"', page)
-        self.assertIn('id="str-load"', page)
+        self.assertEqual(len(re.findall(r'name="gcell_', page)), len(panels.input_cells(panels.GENOPOISK_PANELS)))
+        self.assertEqual(page.count('class="panel str-section"'), 2)
+        self.assertEqual(page.count('class="str-load"'), 2)
         self.assertNotRegex(page.split("</style>", 1)[1].lower(), "predict|предикт")
 
     def test_saving_from_cells(self):
@@ -102,9 +103,32 @@ class CellForm(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn('id="new-profile-error"', page)
         self.assertIn("DYS570", page)
-        self.assertIn('name="cell_DYS393" value="13"', page)
+        self.assertIn('name="cell_DYS393" data-field="DYS393" value="13"', page)
         self.assertIn('name="nickname" maxlength="200" value="Ник"', page)
         self.assertIn('value="own_test" required checked', page)
+        self.assertEqual(pr.list_owned(self.app.conn, self.uid), [])
+
+    def test_genopoisk_window_keeps_its_own_loci(self):
+        status, location, _ = self.save(g_panel="GENOPOISK_Y50", gcell_DYS518="38", gcell_DYS627="20", **{"gcell_Y-GATA-H4": "12"})
+        self.assertEqual(status, 303)
+        p = pr.get_owned(self.app.conn, self.uid, int(location.rsplit("/", 1)[1]))
+        self.assertEqual((p.panel_code, p.markers["DYS518"], p.markers["DYS627"], p.markers["Y-GATA-H4"]), ("GENOPOISK_Y50", (38,), (20,), (12,)))
+
+    def test_both_windows_make_two_results_without_mixing_scales(self):
+        status, location, _ = self.save(panel="FTDNA_Y37", g_panel="GENOPOISK_Y37", nickname="Ник", **{"cell_Y-GATA-H4": "11", "gcell_Y-GATA-H4": "12", "gcell_DYS518": "38"})
+        self.assertEqual((status, location), (303, "/me"))
+        ftdna, genopoisk = pr.list_owned(self.app.conn, self.uid)
+        self.assertEqual((ftdna.panel_code, ftdna.markers["Y-GATA-H4"]), ("FTDNA_Y37", (11,)))
+        self.assertEqual((genopoisk.panel_code, genopoisk.markers["Y-GATA-H4"], genopoisk.markers["DYS518"]), ("GENOPOISK_Y37", (12,), (38,)))
+        self.assertNotIn("DYS518", ftdna.markers)
+        self.assertEqual({ftdna.nickname, genopoisk.nickname}, {"Ник"})
+        self.assertFalse(ftdna.searchable or genopoisk.searchable)
+
+    def test_error_in_one_window_saves_nothing(self):
+        status, _, page = self.save(panel="FTDNA_Y12", cell_DYS393="13", g_panel="GENOPOISK_Y37", gcell_DYS622="20")   # DYS622 — только в Y50
+        self.assertEqual(status, 400)
+        self.assertIn("DYS622", page)
+        self.assertIn('name="cell_DYS393" data-field="DYS393" value="13"', page)
         self.assertEqual(pr.list_owned(self.app.conn, self.uid), [])
 
     def test_both_cells_and_text_are_refused(self):

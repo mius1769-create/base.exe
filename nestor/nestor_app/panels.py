@@ -170,10 +170,18 @@ def _cell_fields(name: str, copies: int) -> list[tuple[str, str]]:
     return [(f"{name}{_COPY_SUFFIXES[i]}", f"{name}{_COPY_SUFFIXES[i].lower()}") for i in range(copies)]
 
 
-def input_cells() -> list[dict]:
-    """Все окошки ручного ввода: сначала порядок FTDNA Y111, затем локусы других панелей."""
+STANDARD_PANELS = ("FTDNA_Y12", "FTDNA_Y25", "FTDNA_Y37", "FTDNA_Y67", "FTDNA_Y111")
+GENOPOISK_PANELS = ("GENOPOISK_Y50", "GENOPOISK_Y37")
+
+
+def input_cells(codes=None) -> list[dict]:
+    """Окошки ручного ввода по панелям codes в порядке первой из них.
+
+    По умолчанию — окно стандартных маркеров: порядок FTDNA Y111, затем локусы остальных панелей
+    (видны только при пользовательском наборе).
+    """
     cells: dict[str, dict] = {}
-    for code in ("FTDNA_Y111", *PANELS):
+    for code in (codes or ("FTDNA_Y111", *PANELS)):
         panel = PANELS[code]
         for name, copies in panel.markers:
             for field, label in _cell_fields(name, copies):

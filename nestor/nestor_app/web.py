@@ -826,43 +826,71 @@ Strelka и Y700 как отдельные форматы файлов не по�
         if not sess:
             return self._redirect("/login")
         f = form or {}
+        orders = panels.panel_orders()
+
+        def select(name, codes, current, extra=()):
+            options = [(c, panels.get_panel(c).title.replace("Genopoisk", "Генопоиск")) for c in codes] + list(extra)
+            return f'<select name="{name}" class="str-panel">' + "".join(
+                f'<option value="{esc(c)}"{" selected" if c == current else ""}>{esc(t)}</option>' for c, t in options) + "</select>"
+
+        windows = (
+            {"id": "str-standard", "title": "Стандартные маркеры", "note": "FTDNA и другие тесты с такими же локусами.",
+             "prefix": "cell_", "text_name": "markers", "cells": panels.input_cells(), "orders": orders,
+             "select": select("panel", panels.STANDARD_PANELS, f.get("panel", "FTDNA_Y111"), [(panels.CUSTOM, "пользовательский набор — все локусы")])},
+            {"id": "str-genopoisk", "title": "Тесты Генопоиска", "note": "Набор Генопоиска, в том числе локусы, которых нет в FTDNA Y111.",
+             "prefix": "gcell_", "text_name": "g_markers", "cells": panels.input_cells(panels.GENOPOISK_PANELS), "orders": orders,
+             "select": select("g_panel", panels.GENOPOISK_PANELS, f.get("g_panel", "GENOPOISK_Y50"))},
+        )
         page = forms_ui.new_profile_page(
-            sess[1], self._panel_select(f.get("panel", "FTDNA_Y111")),
-            self._vis_select("nickname_visibility", f.get("nickname_visibility", "hidden")),
+            sess[1], self._vis_select("nickname_visibility", f.get("nickname_visibility", "hidden")),
             self._vis_select("ancestor_visibility", f.get("ancestor_visibility", "hidden")), BASIS_LABELS,
-            cells=panels.input_cells(), orders=panels.panel_orders(), values=f, error=error)
+            windows=windows, values=f, error=error)
         self._page("Новый профиль", page, sess, 400 if error else 200)
 
     @staticmethod
-    def _entered_markers(form) -> tuple[dict, str]:
-        """Профиль из окошек или из текста; одновременно нельзя, чтобы молча не потерять часть введённого."""
-        text = form.get("markers", "").strip()
-        cells = {k[len("cell_"):]: v for k, v in form.items() if k.startswith("cell_")}
+    def _entered_window(form, prefix, text_name, panel) -> tuple[dict, str] | None:
+        """Одно окно: окошки или текст; одновременно нельзя, чтобы молча не потерять часть введённого."""
+        text = form.get(text_name, "").strip()
+        cells = {k[len(prefix):]: v for k, v in form.items() if k.startswith(prefix)}
         filled = any((v or "").strip() and v.strip() != "0" for v in cells.values())
         if filled and text:
             raise ValueError("заполнены и окошки, и список значений: оставьте что-то одно")
         if filled:
             return panels.markers_from_cells(cells), "manual"
+        if not text:
+            return None
         if panels.looks_like_flat_list(text):
-            return panels.parse_flat_values(text, form.get("panel", "AUTO")), "manual"
+            return panels.parse_flat_values(text, panel), "manual"
         return mk.parse_profile_input(text), "table" if mk.looks_like_table(text) else "manual"
 
     def _create_profile(self, sess, form):
+        """Каждое заполненное окно — отдельный результат: шкалы Генопоиска и FTDNA не смешиваются."""
         try:
-            markers, source_format = self._entered_markers(form)
-            pid = pr.create_profile(
+            entries = []
+            for prefix, text_name, panel_name, default in (("cell_", "markers", "panel", "AUTO"), ("gcell_", "g_markers", "g_panel", "GENOPOISK_Y50")):
+                panel = form.get(panel_name, default)
+                entered = self._entered_window(form, prefix, text_name, panel)
+                if entered is None:
+                    continue
+                applied = panels.apply_panel(entered[0], panel)[0]     # проверить оба окна до записи
+                if not any(mk.is_observed(v) for v in applied.values()):
+                    raise ValueError("в профиле нет ни одного маркера со значением")
+                entries.append((entered[0], entered[1], panel))
+            if not entries:
+                raise ValueError("заполните хотя бы одно окно: стандартные маркеры или тест Генопоиска")
+            pids = [pr.create_profile(
                 self.nestor.conn, sess[0], markers,
                 consent_basis=form.get("consent_basis", ""),
                 consent_confirmed=form.get("consent_confirmed") == "1",
                 kit_id=form.get("kit_id"),
-                panel_code=form.get("panel", "AUTO"),
+                panel_code=panel,
                 source_format=source_format,
                 nickname=form.get("nickname"), nickname_visibility=form.get("nickname_visibility", "hidden"),
                 ancestor_text=form.get("ancestor_text"), ancestor_visibility=form.get("ancestor_visibility", "hidden"),
-            )
+            ) for markers, source_format, panel in entries]
         except (ValueError, mk.MarkerError, panels.UnsupportedPanel) as e:
             return self._new_profile_form(sess, form, str(e))    # введённое не теряется
-        self._redirect(f"/profiles/{pid}")
+        self._redirect(f"/profiles/{pids[0]}" if len(pids) == 1 else "/me")
 
     def _profile_page(self, sess, pid):
         if not sess:

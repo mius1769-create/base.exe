@@ -42,7 +42,7 @@ a.quiet{font-size:12px} .panel-title a.quiet{font-size:11px} .tabs a{padding:10p
 .forms.one{grid-template-columns:1fr} .forms label{display:flex;flex-direction:column;gap:5px} .forms .form-actions{margin-top:4px}
 .choices{display:grid;gap:8px;margin:10px 0 12px} .choices label,.choice{display:flex;align-items:flex-start;gap:8px;font-size:12px}
 .choices input,.choice input{margin:2px 0 0;flex-shrink:0} .form-actions form{margin:0}
-#str-grid .locus label{text-transform:none} #str-grid .locus input{text-align:center} #str-count{white-space:nowrap} #str-message{flex:1 1 200px}
+.str-grid .locus label{text-transform:none} .str-grid .locus input{text-align:center} .str-count{white-space:nowrap} .str-message{flex:1 1 200px} .str-section .forms{max-width:420px}
 .page-tabs{padding:0;margin:0 0 18px} .locus span{font-size:12px} .danger{border-color:#e6c9c9}
 @media(max-width:760px){.account{display:flex;margin-left:auto}.account>span,.account .avatar{display:none}.filters>label{flex:1 1 100%}.filters.short>label:nth-child(-n+2){flex:1 1 40%}.filters>button{flex:1 1 100%}}
 """
@@ -91,18 +91,18 @@ THEME_JS = """(function () {
     apply.hidden = true;
     kit.addEventListener('change', function () { kit.form.submit(); });
   }
-  var grid = document.getElementById('str-grid');
-  if (grid) setupStrGrid(grid);
-  function setupStrGrid(grid) {
+  Array.prototype.forEach.call(document.querySelectorAll('.str-section'), setupStrGrid);
+  function setupStrGrid(section) {
+    var grid = section.querySelector('.str-grid');
     var orders = JSON.parse(grid.dataset.orders);
-    var panel = grid.closest('form').elements.panel;
-    var text = document.getElementById('str-text');
-    var load = document.getElementById('str-load');
-    var clear = document.getElementById('str-clear');
-    var message = document.getElementById('str-message');
-    var count = document.getElementById('str-count');
+    var panel = section.querySelector('.str-panel');
+    var text = section.querySelector('.str-text');
+    var load = section.querySelector('.str-load');
+    var clear = section.querySelector('.str-clear');
+    var message = section.querySelector('.str-message');
+    var count = section.querySelector('.str-count');
     var loci = Array.prototype.slice.call(grid.querySelectorAll('.locus'));
-    function input(field) { return document.getElementById('cell_' + field); }
+    function input(field) { return grid.querySelector('[data-field="' + field + '"]'); }
     function active() { return loci.filter(function (l) { return !l.hidden; }).map(function (l) { return l.querySelector('input'); }); }
     function recount() {
       var all = active();

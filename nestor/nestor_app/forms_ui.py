@@ -49,45 +49,51 @@ def register_page() -> str:
             + '<p class="caption">Восстановления пароля нет: запишите его. Уже есть аккаунт? <a href="/login">Войти</a></p></div>')
 
 
-def _str_cells(cells, values: dict) -> str:
+def _str_cells(prefix: str, cells, values: dict) -> str:
     out = []
     for c in cells:
-        field = f'cell_{c["field"]}'
+        field = f'{prefix}{c["field"]}'
         out.append(f'<div class="locus" data-panels="{esc(" ".join(c["panels"]))}"><label for="{esc(field)}">{esc(c["label"])}</label>'
-                   f'<input id="{esc(field)}" name="{esc(field)}" value="{esc(values.get(field, ""))}" inputmode="decimal" autocomplete="off" maxlength="16"></div>')
+                   f'<input id="{esc(field)}" name="{esc(field)}" data-field="{esc(c["field"])}" value="{esc(values.get(field, ""))}" '
+                   'inputmode="decimal" autocomplete="off" maxlength="16"></div>')
     return "".join(out)
 
 
-def new_profile_page(csrf: str, panel_select: str, nickname_vis: str, ancestor_vis: str, basis_labels: dict, *,
-                     cells, orders: dict, values: dict | None = None, error: str = "") -> str:
-    """Новый результат вручную: окошки по локусам или список значений. values — введённое ранее, если сохранить не удалось."""
+def _str_section(window: dict, values: dict) -> str:
+    """Окно STR: своя панель, свой список значений и своя сетка окошек."""
+    orders_json = esc(json.dumps(window["orders"], ensure_ascii=False))
+    return (f'<section class="panel str-section" id="{window["id"]}"><div class="panel-title"><h2>{esc(window["title"])}</h2><small class="str-count"></small></div>'
+            f'<div class="panel-body"><p class="sub">{esc(window["note"])}</p><div class="forms form-note">'
+            + _field("Тип теста", window["select"], True) + '</div>'
+            '<p class="sub form-note">Список значений: через пробел по порядку выбранной панели (<code>0</code> — нет значения) или строки <code>МАРКЕР=значение</code>.</p>'
+            f'<textarea name="{window["text_name"]}" class="str-text form-note" rows="3" aria-label="Список значений: {esc(window["title"])}">{esc(values.get(window["text_name"], ""))}</textarea>'
+            '<div class="actions form-note"><button type="button" class="str-load" hidden>Загрузить в окошки</button>'
+            '<button type="button" class="str-clear quiet" hidden>Очистить окошки</button><small class="str-message" role="status"></small></div>'
+            f'<div class="loci str-grid form-note" data-orders="{orders_json}">{_str_cells(window["prefix"], window["cells"], values)}</div></div></section>')
+
+
+def new_profile_page(csrf: str, nickname_vis: str, ancestor_vis: str, basis_labels: dict, *,
+                     windows, values: dict | None = None, error: str = "") -> str:
+    """Новый результат вручную: два окна STR. values — введённое ранее, если сохранить не удалось."""
     values = values or {}
     card = ('<div class="forms">'
-            + _field("Тип теста / панель", panel_select, True)
-            + '<p class="caption full">Известная панель: позиции профиля — весь её состав, неуказанные сохраняются как «нет значения». '
-              'Пользовательский набор: позиции — только указанные локусы.</p>'
             + _field("Kit ID (необязательно; виден только вам)", f'<input type="text" name="kit_id" maxlength="60" value="{esc(values.get("kit_id", ""))}">', True)
             + _field("Никнейм владельца (необязательно)", f'<input type="text" name="nickname" maxlength="200" value="{esc(values.get("nickname", ""))}">')
             + _field("Видимость никнейма", nickname_vis)
             + _field("Дальний предок (необязательно)", f'<input type="text" name="ancestor_text" maxlength="200" value="{esc(values.get("ancestor_text", ""))}">')
             + _field("Видимость предка", ancestor_vis) + "</div>")
-    loader = ('<p class="sub">Значения через пробел по порядку выбранной панели (<code>0</code> — нет значения) или строки <code>МАРКЕР=значение</code>. '
-              'Можно также вставить таблицу из двух строк: заголовки и значения через <code>;</code>.</p>'
-              f'<textarea name="markers" id="str-text" class="form-note" rows="4">{esc(values.get("markers", ""))}</textarea>'
-              '<div class="actions form-note"><button type="button" id="str-load" hidden>Загрузить в окошки</button>'
-              '<button type="button" id="str-clear" class="quiet" hidden>Очистить окошки</button><small id="str-message" role="status"></small></div>'
-              '<div class="info form-note">Исходные значения хранятся как есть. No call сохраняется как отсутствие измерения, а не как ноль.</div>')
-    orders_json = esc(json.dumps(orders, ensure_ascii=False))
-    grid = (f'<div class="loci" id="str-grid" data-orders="{orders_json}">{_str_cells(cells, values)}</div>'
-            '<p class="caption">Пустое окошко — нет значения. Для мультикопийного локуса заполните все его окошки, иначе он сохранится как нераспознанный.</p>')
+    guide = ('<div class="info">Заполните одно окно или оба. Каждое заполненное окно сохранится <b>отдельным результатом</b> со своей панелью: '
+             'у Генопоиска и FTDNA одинаковые названия локусов могут быть записаны в разных шкалах, поэтому значения не смешиваются.</div>'
+             '<p class="caption">Пустое окошко — нет значения. No call сохраняется как отсутствие измерения, а не как ноль. Для мультикопийного локуса заполните все его '
+             'окошки, иначе он сохранится как нераспознанный.</p>')
     consent = (f'<p><b>Чей это тест?</b></p>{_choices(basis_labels, values.get("consent_basis"))}'
                f'<label class="choice"><input type="checkbox" name="consent_confirmed" value="1" required{" checked" if values.get("consent_confirmed") == "1" else ""}> '
                'Подтверждаю, что имею право загрузить этот профиль.</label>'
                '<p class="caption">Профиль будет создан <b>закрытым</b> и не будет участвовать в поиске, пока вы сами не включите сопоставление.</p>')
     alert = f'<div class="info warm" id="new-profile-error" role="alert">{esc(error)}</div>' if error else ""
     return (head("Личный кабинет / загрузка", "Новый результат", "Карточка образца, загрузка файла и проверка локусов.") + _upload_tabs("/profiles/new") + alert
-            + f'<form method="post" action="/profiles/new">{_csrf(csrf)}<div class="grid2">{panel("Карточка образца", card)}{panel("Загрузить список значений", loader)}</div>'
-            + panel("STR-значения", grid, '<small id="str-count"></small>')
+            + f'<form method="post" action="/profiles/new">{_csrf(csrf)}<div class="grid2">{panel("Карточка образца", card)}{panel("Как заполнять", guide)}</div>'
+            + "".join(_str_section(w, values) for w in windows)
             + panel("Право на загрузку", consent) + '<div class="form-actions"><button class="primary">Сохранить результат</button></div></form>')
 
 
