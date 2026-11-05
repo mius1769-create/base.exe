@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import backups, reference
+from .cabinet_ui import stat
 from .test_catalog import H4_SCALE_THRESHOLD
 
 SOURCES_SHOWN = 8
@@ -48,6 +49,15 @@ def _backup_state(backup_dir: Path) -> dict:
     last = datetime.fromtimestamp(files[-1].stat().st_mtime, tz=timezone.utc) if files else None
     return {"count": len(files), "bytes": sum(f.stat().st_size for f in files), "last": last,
             "keep_days": backups.keep_days_from_env()}
+
+
+def backup_files(backup_dir: Path) -> list[tuple[str, str, str]]:
+    """Копии, новые сверху: (имя файла, время, размер)."""
+    if not backup_dir.exists():
+        return []
+    files = sorted(backup_dir.glob(f"{backups.PREFIX}*.db"), key=lambda f: f.stat().st_mtime, reverse=True)
+    return [(f.name, _local_time(datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)),
+             f'{f.stat().st_size / (1024 * 1024):.1f} МБ'.replace(".", ",")) for f in files]
 
 
 def collect(app) -> dict:
@@ -86,10 +96,8 @@ def _status_pill(status: str) -> str:
     return f'<span class="state {cls}">{esc(status)}</span>'
 
 
-def _stat(title: str, value: str, desc: str, trend: str = "") -> str:
-    tail = f'<span class="trend">{esc(trend)}</span>' if trend else ""
-    return (f'<div class="stat"><div class="eyebrow">{esc(title)}</div><span class="value">{esc(value)}</span>'
-            f'<div class="desc"><span>{esc(desc)}</span>{tail}</div></div>')
+def _stat(title: str, value: str, desc: str, trend: str = "", href: str = "") -> str:
+    return stat(title, value, desc, href, trend)
 
 
 def _panel(title: str, body: str, note: str = "") -> str:
@@ -166,12 +174,12 @@ def page_html(state: dict, csrf: str) -> str:
     week = f'+{state["users_week"]} за неделю' if state["users_week"] else ""
     ref = state["reference"]
     stats = "".join((
-        _stat("Аккаунты", _num(state["users"]), f'мастеров: {state["masters"]}', week),
-        _stat("Профили пользователей", _num(state["profiles"]), f'открыто для поиска: {state["searchable"]}'),
-        _stat("Тестовый каталог", _num(catalog["counts"]["records"]), f'записей · источников: {catalog["counts"]["sources"]}')
-        if catalog else _stat("Тестовый каталог", "Выключен", "поиск его не использует"),
+        _stat("Аккаунты", _num(state["users"]), f'мастеров: {state["masters"]}', week, "/master/accounts"),
+        _stat("Профили пользователей", _num(state["profiles"]), f'открыто для поиска: {state["searchable"]}', href="/master/accounts"),
+        _stat("Тестовый каталог", _num(catalog["counts"]["records"]), f'записей · источников: {catalog["counts"]["sources"]}', href="/master/science")
+        if catalog else _stat("Тестовый каталог", "Выключен", "поиск его не использует", href="/master/science"),
         _stat("Научный справочник", "Подключён" if ref.connected else "Не подключён",
-              "только чтение" if ref.connected else "причина ниже"),
+              "только чтение" if ref.connected else "причина ниже", href="/master/science"),
     ))
     note = "" if ref.connected else f'<p class="note" id="reference-status">{esc(ref.reason)}</p>'
     return (f'{head}<div class="stats">{stats}</div>{note}<div class="columns"><div>{_sources_panel(catalog)}'

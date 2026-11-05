@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 import email.parser
 import email.policy
 
-from . import compare_ui, master_ui
+from . import cabinet_ui, compare_ui, master_ui, theme
 from . import accounts, contacts, panels
 from . import importer as im
 from . import backups, staging
@@ -44,15 +44,6 @@ CSS = """
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
 a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
-header{background:var(--paper);border-bottom:1px solid var(--line)}
-.top{max-width:1180px;margin:0 auto;padding:14px 24px 0;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.brand{font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink)} .brand small{font:500 10px var(--mono);color:var(--muted);
-letter-spacing:.12em;margin-left:10px;border-left:1px solid var(--line);padding-left:10px}
-.top .right{margin-left:auto;display:flex;gap:10px;align-items:center}
-nav{max-width:1180px;margin:0 auto;padding:0 24px;display:flex;gap:26px;flex-wrap:wrap}
-nav a{color:#4b5963;padding:14px 0 12px;border-bottom:2px solid transparent;font-size:14px}
-nav a.on{color:var(--blue);border-bottom-color:var(--blue)} nav a:hover{text-decoration:none;color:var(--blue)}
-main{max-width:1180px;margin:0 auto;padding:18px 24px 40px}
 .crumb{font:500 10px var(--mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin:16px 0 6px}
 h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.02em} h2{font-size:18px;margin:0 0 10px}
 .lead{color:var(--muted);margin:0 0 18px}
@@ -102,7 +93,7 @@ summary.btn{display:inline-block;border:1px solid var(--line);border-radius:7px;
 .panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:18px}
 .panel-title{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px 12px} .panel-title h2{font-size:17px;margin:0;letter-spacing:-.02em}
 .panel-body{padding:0 18px 18px} .panel h3{font-size:14px;margin:0} .panel .sub{font-size:12px;margin-top:6px}
-.panel table{font-size:12px} .panel th{font-size:10px} .panel td,.panel th{padding-left:10px;padding-right:10px} .panel .time{white-space:nowrap;font:11px var(--mono)}
+.panel .time{white-space:nowrap;font:11px var(--mono)}
 table.sources{table-layout:fixed;min-width:480px} table.sources td{overflow-wrap:anywhere} table.sources th:nth-child(1),table.sources td:nth-child(1){width:46%} table.sources th:nth-child(2),table.sources td:nth-child(2){width:13%} table.sources th:nth-child(3),table.sources td:nth-child(3){width:19%} table.sources .num{font-variant-numeric:tabular-nums}
 .state{display:inline-block;padding:3px 7px;background:#edf1f4;border-radius:4px;font-size:10px;color:#637581;white-space:nowrap}
 .state.green{background:#eaf4ee;color:var(--green)} .state.amber{background:#fbf2e3;color:var(--amber)} .state.red{background:#faeded;color:var(--red)}
@@ -111,7 +102,7 @@ table.sources{table-layout:fixed;min-width:480px} table.sources td{overflow-wrap
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid #edf1f3} .settings-row p{margin:0;font-size:12px;font-weight:550}
 .caption{font-size:11px;color:#8a969f;margin:12px 0 0;line-height:1.6}
 @media (max-width:1050px){.columns{grid-template-columns:minmax(0,1fr) 245px}}
-@media (max-width:760px){.filters.short{grid-template-columns:1fr 1fr}.filters.short label:nth-child(3),.filters.short button{grid-column:1/-1}nav{gap:0 18px}nav a{padding:9px 0 8px}.page-head{flex-direction:column;align-items:flex-start;gap:12px}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat .value{font-size:24px}.columns{grid-template-columns:minmax(0,1fr);gap:0}}
+@media (max-width:760px){.filters.short{grid-template-columns:1fr 1fr}.filters.short label:nth-child(3),.filters.short button{grid-column:1/-1}.page-head{flex-direction:column;align-items:flex-start;gap:12px}.stats{grid-template-columns:repeat(2,1fr);gap:9px}.stat .value{font-size:24px}.columns{grid-template-columns:minmax(0,1fr);gap:0}}
 .foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding:12px 18px;border-top:1px solid var(--line)}
 .accepted{color:var(--green);font-size:13px} .note{font-size:12px;color:var(--amber)} .empty{padding:18px!important;color:var(--muted)}
 .footnote{font-size:12px;color:var(--muted);margin-top:4px}
@@ -119,6 +110,9 @@ pre{white-space:pre-wrap;background:#f7f9fa;border:1px solid var(--line);border-
 .muted{color:var(--muted)} .err{color:var(--red);font-weight:600} .warn{color:var(--amber)}
 form.inline{display:inline} code{font:12px var(--mono);background:#f0f3f5;padding:1px 4px;border-radius:3px}
 """
+
+
+PAGE_CSS = CSS + theme.THEME_CSS   # стили макета идут после прежних и имеют приоритет
 
 
 def esc(v) -> str:
@@ -297,23 +291,33 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
 
+    def _theme(self) -> str | None:
+        """Выбранная тема из cookie; без неё страница следует настройке системы."""
+        c = cookies.SimpleCookie()
+        try:
+            c.load(self.headers.get("Cookie") or "")
+        except cookies.CookieError:
+            return None
+        value = c[theme.THEME_COOKIE].value if theme.THEME_COOKIE in c else None
+        return value if value in theme.THEMES else None
+
     def _page(self, title: str, content: str, sess=None, status=200):
-        path = urlsplit(self.path).path
-        links = [("/compare", "Сравнение с научными данными"), ("/", "Поиск по профилям")]
-        links += [("/me", "Мои профили")] if sess else [("/login", "Войти"), ("/register", "Регистрация")]
-        if sess and accounts.is_master(self.nestor.conn, sess[0]):
-            links.append(("/master", "Состояние базы"))
-        nav = "".join(f'<a href="{h}"{" class=on" if (path == h or (h == "/" and path == "/guest/search")) else ""}>{esc(t)}</a>'
-                      for h, t in links)
-        right = (f'<form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" '
-                 f'value="{esc(sess[1])}"><button>Выйти</button></form>') if sess else ""
-        body = (f'<!doctype html><html lang="ru"><head><meta charset="utf-8">'
-                f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-                f'<title>{esc(title)} — NeSToR</title><style>{CSS}</style></head><body>'
-                f'<header><div class="top"><span class="brand">NeSToR<small>Y-ДНК · ЛОКАЛЬНО</small></span>'
-                f'<span class="right">{right}</span></div><nav>{nav}</nav></header>'
-                f'<main>{content}</main></body></html>')
-        self._send(status, body)
+        user = None
+        if sess:
+            row = self.nestor.conn.execute("SELECT display_name, is_master FROM users WHERE id = ?", (sess[0],)).fetchone()
+            name = (row["display_name"] if row else None) or "Мой аккаунт"
+            user = {"name": name, "initials": name[:2].upper(), "csrf": sess[1], "is_master": bool(row and row["is_master"])}
+        self._send(status, cabinet_ui.shell(title, content, path=urlsplit(self.path).path, theme=self._theme(), user=user, css=PAGE_CSS))
+
+    def _toggle_theme(self):
+        """Переключение без скриптов. Со скриптом форма сюда не отправляется, и результаты на странице не теряются."""
+        current = self._theme()
+        target = "light" if current == "dark" else "dark"
+        back = urlsplit(self.headers.get("Referer") or "")
+        location = back.path + (f"?{back.query}" if back.query else "")
+        if not back.path.startswith("/") or back.path.startswith("//") or back.path == "/guest/search":
+            location = "/"              # страницу результатов нельзя открыть заново без формы
+        self._redirect(location, [("Set-Cookie", f"{theme.THEME_COOKIE}={target}; Path=/; Max-Age=31536000; SameSite=Strict")])
 
     def _error(self, msg: str, sess=None, status=400):
         self._page("Ошибка", f'<div class="card"><p class="err">{esc(msg)}</p>'
@@ -353,8 +357,18 @@ class _Handler(BaseHTTPRequestHandler):
             return self._login_form(sess)
         if path == "/me":
             return self._me(sess)
+        if path == "/static/nestor.js":
+            return self._send(200, theme.THEME_JS, "text/javascript; charset=utf-8")
         if path == "/master":
             return self._master(sess)
+        if path == "/master/backups":
+            return self._master_backups(sess)
+        if path == "/cabinet":
+            return self._cabinet_overview(sess)
+        if path == "/cabinet/matches":
+            return self._cabinet_matches(sess)
+        if path in cabinet_ui.STUB_SCREENS:
+            return self._stub_screen(sess, path)
         if path == "/profiles/new":
             return self._new_profile_form(sess)
         if path == "/import":
@@ -384,6 +398,8 @@ class _Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         token, sess = self._session()
         form = self._form()
+        if path == "/theme":
+            return self._toggle_theme()
         if path == "/guest/search":
             return self._guest_search(sess, form)
         if path == "/compare":
@@ -405,7 +421,7 @@ class _Handler(BaseHTTPRequestHandler):
             accounts.end_session(self.nestor.conn, token)
             return self._redirect("/", [("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")])
         if path == "/master/backup":
-            return self._master_backup(sess)
+            return self._master_backup(sess, form)
         if path == "/profiles/new":
             return self._create_profile(uid, form)
         if path == "/import":
@@ -469,14 +485,49 @@ class _Handler(BaseHTTPRequestHandler):
         if self._master_allowed(sess):
             self._page("Состояние базы", master_ui.page_html(master_ui.collect(self.nestor), sess[1]), sess)
 
-    def _master_backup(self, sess):
+    def _master_backup(self, sess, form):
         if not self._master_allowed(sess):
             return
         try:
             backups.make_backup(self.nestor.settings.users_db, self.nestor.settings.var_dir / "backups")
         except FileExistsError:
             raise ValueError("копия только что создана, повторите через секунду") from None
-        self._redirect("/master")
+        self._redirect("/master/backups" if form.get("back") == "backups" else "/master")
+
+    def _master_backups(self, sess):
+        if self._master_allowed(sess):
+            folder = self.nestor.settings.var_dir / "backups"
+            self._page("Резервные копии", cabinet_ui.backups_page(master_ui._backup_state(folder), master_ui.backup_files(folder), sess[1]), sess)
+
+    def _stub_screen(self, sess, path):
+        """Экран из макета без готовой функции. Разделы администратора и мастера закрыты ролью мастера."""
+        if cabinet_ui.role_of(path) == "client":
+            if not sess:
+                return self._redirect("/login")
+        elif not self._master_allowed(sess):
+            return
+        self._page(cabinet_ui.SCREEN_TITLES.get(path, "NeSToR"), cabinet_ui.STUB_SCREENS[path](), sess)
+
+    def _cabinet_overview(self, sess):
+        if not sess:
+            return self._redirect("/login")
+        uid = sess[0]
+        profiles = pr.list_owned(self.nestor.conn, uid)
+        wanted = parse_qs(urlsplit(self.path).query).get("kit", [""])[0]
+        selected = next((p for p in profiles if str(p.id) == wanted), profiles[0] if profiles else None)
+        found, events = None, []
+        if selected:
+            if selected.searchable:
+                found = search.owner_search(self.nestor.conn, uid, selected.id)
+            events = [(master_ui.EVENT_LABELS.get(r["event"], r["event"]), master_ui._db_time(r["at"])) for r in self.nestor.conn.execute(
+                "SELECT event, at FROM consent_events WHERE profile_id = ? ORDER BY id DESC LIMIT 3", (selected.id,))]
+        pending = sum(1 for r in contacts.incoming(self.nestor.conn, uid) if r["status"] == "pending")
+        self._page("Обзор", cabinet_ui.overview(profiles, selected, found, pending, events), sess)
+
+    def _cabinet_matches(self, sess):
+        if not sess:
+            return self._redirect("/login")
+        self._page("Совпадения", cabinet_ui.matches_page(pr.list_owned(self.nestor.conn, sess[0])), sess)
 
     def _login_redirect(self, uid: int):
         token, _ = accounts.create_session(self.nestor.conn, uid)
@@ -699,14 +750,16 @@ Strelka и Y700 как отдельные форматы файлов не по�
         for r in contacts.outgoing(self.nestor.conn, uid):
             out.append(f'<tr><td>{esc(r["public_handle"])}</td><td>{esc(r["status"])}</td>'
                        f'<td>{esc(r["owner_reply"]) or "—"}</td></tr>')
-        content = (f'<div class="card"><h2>Мои профили</h2>{table}<p><a href="/profiles/new">Ввести профиль вручную</a> · <a href="/import">Импорт из файла CSV / XLSX</a></p></div>'
+        content = (cabinet_ui.head("Личный кабинет / результаты", "Мои результаты", "Каждый образец имеет собственную карточку.",
+                                   '<a class="btn-link primary" href="/import">+ Добавить результат</a>')
+                   + f'<div class="card"><h2>Мои профили</h2>{table}<p><a href="/profiles/new">Ввести профиль вручную</a> · <a href="/import">Импорт из файла CSV / XLSX</a></p></div>'
                    f'<div class="card"><h2>Входящие запросы на связь</h2>'
                    + (("<table><tr><th>Профиль</th><th>От</th><th>Сообщение</th><th>Статус</th><th></th></tr>"
                        + "".join(inc) + "</table>") if inc else '<p class="muted">Нет запросов.</p>')
                    + '</div><div class="card"><h2>Мои запросы</h2>'
                    + (("<table><tr><th>Профиль</th><th>Статус</th><th>Ответ владельца</th></tr>"
                        + "".join(out) + "</table>") if out else '<p class="muted">Нет запросов.</p>') + "</div>")
-        self._page("Мои профили", content, sess)
+        self._page("Мои результаты", content, sess)
 
     @staticmethod
     def _vis_select(name, current="hidden") -> str:
@@ -891,7 +944,7 @@ Strelka и Y700 как отдельные форматы файлов не по�
         body = ((compare_ui.depth_tabs(summary, action=action, method=method, hidden=hidden)
                  + (compare_ui.matches_table(matches, summary) if matches else '<p class="empty">На этой вкладке совпадений нет.</p>'))
                 if summary["tiers"][0][2] else '<p class="empty">Совпадений в тестовом каталоге нет.</p>')
-        return ('<div class="card flush"><div class="card-head"><h2>Научный тестовый каталог</h2>'
+        return ('<div class="card flush" id="science"><div class="card-head"><h2>Научный тестовый каталог</h2>'
                 '<span class="pill warn-pill">ЛОКАЛЬНОЕ ТЕСТИРОВАНИЕ</span></div>'
                 '<p class="note">Непроверенные данные: каталог собран из двух научных снимков только для '
                 'локального тестирования, источники не допущены в справочник NeSToR, право на повторное '
