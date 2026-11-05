@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 from .cabinet_ui import esc, head, panel, stat, table
 
 
@@ -16,9 +18,10 @@ def _csrf(token: str) -> str:
     return f'<input type="hidden" name="csrf" value="{esc(token)}">'
 
 
-def _choices(labels: dict) -> str:
+def _choices(labels: dict, current: str | None = None) -> str:
     return '<div class="choices">' + "".join(
-        f'<label><input type="radio" name="consent_basis" value="{k}" required> {esc(v)}</label>' for k, v in labels.items()) + "</div>"
+        f'<label><input type="radio" name="consent_basis" value="{k}" required{" checked" if k == current else ""}> {esc(v)}</label>'
+        for k, v in labels.items()) + "</div>"
 
 
 def _upload_tabs(active: str) -> str:
@@ -46,25 +49,45 @@ def register_page() -> str:
             + '<p class="caption">Восстановления пароля нет: запишите его. Уже есть аккаунт? <a href="/login">Войти</a></p></div>')
 
 
-def new_profile_page(csrf: str, panel_select: str, nickname_vis: str, ancestor_vis: str, basis_labels: dict) -> str:
+def _str_cells(cells, values: dict) -> str:
+    out = []
+    for c in cells:
+        field = f'cell_{c["field"]}'
+        out.append(f'<div class="locus" data-panels="{esc(" ".join(c["panels"]))}"><label for="{esc(field)}">{esc(c["label"])}</label>'
+                   f'<input id="{esc(field)}" name="{esc(field)}" value="{esc(values.get(field, ""))}" inputmode="decimal" autocomplete="off" maxlength="16"></div>')
+    return "".join(out)
+
+
+def new_profile_page(csrf: str, panel_select: str, nickname_vis: str, ancestor_vis: str, basis_labels: dict, *,
+                     cells, orders: dict, values: dict | None = None, error: str = "") -> str:
+    """Новый результат вручную: окошки по локусам или список значений. values — введённое ранее, если сохранить не удалось."""
+    values = values or {}
     card = ('<div class="forms">'
             + _field("Тип теста / панель", panel_select, True)
             + '<p class="caption full">Известная панель: позиции профиля — весь её состав, неуказанные сохраняются как «нет значения». '
               'Пользовательский набор: позиции — только указанные локусы.</p>'
-            + _field("Kit ID (необязательно; виден только вам)", '<input type="text" name="kit_id" maxlength="60">', True)
-            + _field("Никнейм владельца (необязательно)", '<input type="text" name="nickname" maxlength="200">')
+            + _field("Kit ID (необязательно; виден только вам)", f'<input type="text" name="kit_id" maxlength="60" value="{esc(values.get("kit_id", ""))}">', True)
+            + _field("Никнейм владельца (необязательно)", f'<input type="text" name="nickname" maxlength="200" value="{esc(values.get("nickname", ""))}">')
             + _field("Видимость никнейма", nickname_vis)
-            + _field("Дальний предок (необязательно)", '<input type="text" name="ancestor_text" maxlength="200">')
+            + _field("Дальний предок (необязательно)", f'<input type="text" name="ancestor_text" maxlength="200" value="{esc(values.get("ancestor_text", ""))}">')
             + _field("Видимость предка", ancestor_vis) + "</div>")
-    values = ('<p class="sub">Маркеры: <code>МАРКЕР=значение</code>, по одному в строке; <code>МАРКЕР=</code> — позиция без значения; '
-              'или таблица из двух строк: заголовки и значения через <code>;</code>.</p>'
-              '<textarea name="markers" required class="form-note"></textarea>'
+    loader = ('<p class="sub">Значения через пробел по порядку выбранной панели (<code>0</code> — нет значения) или строки <code>МАРКЕР=значение</code>. '
+              'Можно также вставить таблицу из двух строк: заголовки и значения через <code>;</code>.</p>'
+              f'<textarea name="markers" id="str-text" class="form-note" rows="4">{esc(values.get("markers", ""))}</textarea>'
+              '<div class="actions form-note"><button type="button" id="str-load" hidden>Загрузить в окошки</button>'
+              '<button type="button" id="str-clear" class="quiet" hidden>Очистить окошки</button><small id="str-message" role="status"></small></div>'
               '<div class="info form-note">Исходные значения хранятся как есть. No call сохраняется как отсутствие измерения, а не как ноль.</div>')
-    consent = (f'<p><b>Чей это тест?</b></p>{_choices(basis_labels)}'
-               '<label class="choice"><input type="checkbox" name="consent_confirmed" value="1" required> Подтверждаю, что имею право загрузить этот профиль.</label>'
+    orders_json = esc(json.dumps(orders, ensure_ascii=False))
+    grid = (f'<div class="loci" id="str-grid" data-orders="{orders_json}">{_str_cells(cells, values)}</div>'
+            '<p class="caption">Пустое окошко — нет значения. Для мультикопийного локуса заполните все его окошки, иначе он сохранится как нераспознанный.</p>')
+    consent = (f'<p><b>Чей это тест?</b></p>{_choices(basis_labels, values.get("consent_basis"))}'
+               f'<label class="choice"><input type="checkbox" name="consent_confirmed" value="1" required{" checked" if values.get("consent_confirmed") == "1" else ""}> '
+               'Подтверждаю, что имею право загрузить этот профиль.</label>'
                '<p class="caption">Профиль будет создан <b>закрытым</b> и не будет участвовать в поиске, пока вы сами не включите сопоставление.</p>')
-    return (head("Личный кабинет / загрузка", "Новый результат", "Карточка образца, загрузка файла и проверка локусов.") + _upload_tabs("/profiles/new")
-            + f'<form method="post" action="/profiles/new">{_csrf(csrf)}<div class="grid2">{panel("Карточка образца", card)}{panel("Значения маркеров", values)}</div>'
+    alert = f'<div class="info warm" id="new-profile-error" role="alert">{esc(error)}</div>' if error else ""
+    return (head("Личный кабинет / загрузка", "Новый результат", "Карточка образца, загрузка файла и проверка локусов.") + _upload_tabs("/profiles/new") + alert
+            + f'<form method="post" action="/profiles/new">{_csrf(csrf)}<div class="grid2">{panel("Карточка образца", card)}{panel("Загрузить список значений", loader)}</div>'
+            + panel("STR-значения", grid, '<small id="str-count"></small>')
             + panel("Право на загрузку", consent) + '<div class="form-actions"><button class="primary">Сохранить результат</button></div></form>')
 
 

@@ -42,6 +42,7 @@ a.quiet{font-size:12px} .panel-title a.quiet{font-size:11px} .tabs a{padding:10p
 .forms.one{grid-template-columns:1fr} .forms label{display:flex;flex-direction:column;gap:5px} .forms .form-actions{margin-top:4px}
 .choices{display:grid;gap:8px;margin:10px 0 12px} .choices label,.choice{display:flex;align-items:flex-start;gap:8px;font-size:12px}
 .choices input,.choice input{margin:2px 0 0;flex-shrink:0} .form-actions form{margin:0}
+#str-grid .locus label{text-transform:none} #str-grid .locus input{text-align:center} #str-count{white-space:nowrap} #str-message{flex:1 1 200px}
 .page-tabs{padding:0;margin:0 0 18px} .locus span{font-size:12px} .danger{border-color:#e6c9c9}
 @media(max-width:760px){.account{display:flex;margin-left:auto}.account>span,.account .avatar{display:none}.filters>label{flex:1 1 100%}.filters.short>label:nth-child(-n+2){flex:1 1 40%}.filters>button{flex:1 1 100%}}
 """
@@ -89,6 +90,84 @@ THEME_JS = """(function () {
   if (kit && apply) {
     apply.hidden = true;
     kit.addEventListener('change', function () { kit.form.submit(); });
+  }
+  var grid = document.getElementById('str-grid');
+  if (grid) setupStrGrid(grid);
+  function setupStrGrid(grid) {
+    var orders = JSON.parse(grid.dataset.orders);
+    var panel = grid.closest('form').elements.panel;
+    var text = document.getElementById('str-text');
+    var load = document.getElementById('str-load');
+    var clear = document.getElementById('str-clear');
+    var message = document.getElementById('str-message');
+    var count = document.getElementById('str-count');
+    var loci = Array.prototype.slice.call(grid.querySelectorAll('.locus'));
+    function input(field) { return document.getElementById('cell_' + field); }
+    function active() { return loci.filter(function (l) { return !l.hidden; }).map(function (l) { return l.querySelector('input'); }); }
+    function recount() {
+      var all = active();
+      var filled = all.filter(function (i) { return i.value.trim() !== ''; }).length;
+      count.textContent = 'Заполнено ' + filled + ' из ' + all.length;
+    }
+    function showPanel() {
+      var known = orders[panel.value];
+      loci.forEach(function (l) {
+        var show = !known || l.dataset.panels.split(' ').indexOf(panel.value) >= 0;
+        l.hidden = !show;
+        l.querySelector('input').disabled = !show;
+      });
+      recount();
+    }
+    function say(note) { message.textContent = note; }
+    function fill(pairs) {
+      active().forEach(function (i) { i.value = ''; });
+      pairs.forEach(function (p) { input(p[0]).value = p[1] === '0' ? '' : p[1]; });
+      text.value = '';
+      recount();
+      say('Значения загружены в окошки. Проверьте их перед сохранением.');
+    }
+    function loadNamed(lines) {
+      var pairs = [], unknown = [];
+      lines.forEach(function (line) {
+        var parts = line.split('='), name = parts[0].trim().toUpperCase(), values = (parts[1] || '').trim().split('-');
+        if (input(name) && !input(name).disabled) { pairs.push([name, values.join('-')]); return; }
+        var copies = values.map(function (v, n) { return [name + 'ABCD'.charAt(n), v]; });
+        if (copies.every(function (c) { return input(c[0]) && !input(c[0]).disabled; })) { pairs = pairs.concat(copies); return; }
+        unknown.push(name);
+      });
+      if (unknown.length) { say('Нет окошек в этой панели: ' + unknown.join(', ') + '. Ничего не загружено.'); return; }
+      fill(pairs);
+    }
+    function loadText() {
+      var value = text.value.trim();
+      if (!value) { say('Сначала вставьте значения.'); return; }
+      if (value.indexOf('=') >= 0) { loadNamed(value.split(/\\r?\\n/).filter(function (l) { return l.trim(); })); return; }
+      var tokens = value.split(/\\s+/), order = orders[panel.value];
+      if (!tokens.every(function (t) { return /^\\d{1,3}(\\.\\d+)?$/.test(t); })) { say('Таблицу в окошки не разложить: её можно сохранить как есть.'); return; }
+      if (!order) { say('Выберите панель: по числу значений она не определяется.'); return; }
+      if (tokens.length !== order.length) { say('Для этой панели нужно значений: ' + order.length + ', вставлено: ' + tokens.length + '. Ничего не загружено.'); return; }
+      fill(tokens.map(function (t, n) { return [order[n], t]; }));
+    }
+    load.hidden = false;
+    clear.hidden = false;
+    load.addEventListener('click', loadText);
+    clear.addEventListener('click', function () { active().forEach(function (i) { i.value = ''; }); recount(); say(''); });
+    panel.addEventListener('change', showPanel);
+    grid.addEventListener('input', recount);
+    grid.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      var all = active(), next = all[all.indexOf(event.target) + 1];
+      if (next) next.focus();
+    });
+    grid.addEventListener('paste', function (event) {
+      var pasted = (event.clipboardData || window.clipboardData).getData('text');
+      if (pasted.trim().split(/\\s+/).length < 2) return;
+      event.preventDefault();
+      text.value = pasted;
+      loadText();
+    });
+    showPanel();
   }
   var button = document.getElementById('theme-toggle');
   if (!button || !button.form) return;

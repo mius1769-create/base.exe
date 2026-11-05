@@ -163,6 +163,45 @@ def apply_panel(markers: dict, panel_code: str | None) -> tuple[dict, str | None
     return out, panel.code, basis
 
 
+def _cell_fields(name: str, copies: int) -> list[tuple[str, str]]:
+    """Окошки одного локуса: (поле как у копий в плоском списке, подпись): DYS385A → DYS385a."""
+    if copies == 1:
+        return [(name, name)]
+    return [(f"{name}{_COPY_SUFFIXES[i]}", f"{name}{_COPY_SUFFIXES[i].lower()}") for i in range(copies)]
+
+
+def input_cells() -> list[dict]:
+    """Все окошки ручного ввода: сначала порядок FTDNA Y111, затем локусы других панелей."""
+    cells: dict[str, dict] = {}
+    for code in ("FTDNA_Y111", *PANELS):
+        panel = PANELS[code]
+        for name, copies in panel.markers:
+            for field, label in _cell_fields(name, copies):
+                cell = cells.setdefault(field, {"field": field, "label": label, "locus": name, "panels": []})
+                if code not in cell["panels"]:
+                    cell["panels"].append(code)
+    return list(cells.values())
+
+
+def panel_orders() -> dict[str, list[str]]:
+    """Порядок окошек каждой панели: по нему раскладывается список значений."""
+    return {code: [f for name, copies in panel.markers for f, _ in _cell_fields(name, copies)] for code, panel in PANELS.items()}
+
+
+def markers_from_cells(values: dict[str, str]) -> dict:
+    """Профиль из окошек ввода. Пустые локусы пропускаются; правила копий те же, что у списка значений."""
+    from .markers import normalize_entries
+    raw: dict[str, str] = {}
+    by_locus: dict[str, list[str]] = {}
+    for cell in input_cells():
+        by_locus.setdefault(cell["locus"], []).append(cell["field"])
+    for fields in by_locus.values():
+        entered = {f: (values.get(f) or "").strip() for f in fields}
+        if any(v and v != "0" for v in entered.values()):
+            raw.update(entered)
+    return normalize_entries(raw)
+
+
 def panel_label(panel_code: str | None, basis: str) -> str:
     if not panel_code:
         return "пользовательский набор (панель неизвестна, позиции — только указанные)"

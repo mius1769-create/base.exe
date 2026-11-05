@@ -427,7 +427,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/cabinet/settings":
             return self._save_settings(uid, form)
         if path == "/profiles/new":
-            return self._create_profile(uid, form)
+            return self._create_profile(sess, form)
         if path == "/import":
             if "file" not in self.files:
                 raise ValueError("выберите файл CSV или XLSX")
@@ -822,25 +822,46 @@ Strelka и Y700 как отдельные форматы файлов не по�
                 f"<td><details><summary>ячейки</summary><code>{esc(raw)}</code></details></td></tr>")
         self._page("Проверка импорта", forms_ui.import_preview_page(prev, summ, upload_id, csrf, sheet_rows, "".join(rows), BASIS_LABELS), sess)
 
-    def _new_profile_form(self, sess):
+    def _new_profile_form(self, sess, form=None, error=""):
         if not sess:
             return self._redirect("/login")
-        self._page("Новый профиль", forms_ui.new_profile_page(sess[1], self._panel_select(), self._vis_select("nickname_visibility"),
-                                                              self._vis_select("ancestor_visibility"), BASIS_LABELS), sess)
+        f = form or {}
+        page = forms_ui.new_profile_page(
+            sess[1], self._panel_select(f.get("panel", "FTDNA_Y111")),
+            self._vis_select("nickname_visibility", f.get("nickname_visibility", "hidden")),
+            self._vis_select("ancestor_visibility", f.get("ancestor_visibility", "hidden")), BASIS_LABELS,
+            cells=panels.input_cells(), orders=panels.panel_orders(), values=f, error=error)
+        self._page("Новый профиль", page, sess, 400 if error else 200)
 
-    def _create_profile(self, uid, form):
-        text = form.get("markers", "")
-        markers = mk.parse_profile_input(text)
-        pid = pr.create_profile(
-            self.nestor.conn, uid, markers,
-            consent_basis=form.get("consent_basis", ""),
-            consent_confirmed=form.get("consent_confirmed") == "1",
-            kit_id=form.get("kit_id"),
-            panel_code=form.get("panel", "AUTO"),
-            source_format="table" if mk.looks_like_table(text) else "manual",
-            nickname=form.get("nickname"), nickname_visibility=form.get("nickname_visibility", "hidden"),
-            ancestor_text=form.get("ancestor_text"), ancestor_visibility=form.get("ancestor_visibility", "hidden"),
-        )
+    @staticmethod
+    def _entered_markers(form) -> tuple[dict, str]:
+        """Профиль из окошек или из текста; одновременно нельзя, чтобы молча не потерять часть введённого."""
+        text = form.get("markers", "").strip()
+        cells = {k[len("cell_"):]: v for k, v in form.items() if k.startswith("cell_")}
+        filled = any((v or "").strip() and v.strip() != "0" for v in cells.values())
+        if filled and text:
+            raise ValueError("заполнены и окошки, и список значений: оставьте что-то одно")
+        if filled:
+            return panels.markers_from_cells(cells), "manual"
+        if panels.looks_like_flat_list(text):
+            return panels.parse_flat_values(text, form.get("panel", "AUTO")), "manual"
+        return mk.parse_profile_input(text), "table" if mk.looks_like_table(text) else "manual"
+
+    def _create_profile(self, sess, form):
+        try:
+            markers, source_format = self._entered_markers(form)
+            pid = pr.create_profile(
+                self.nestor.conn, sess[0], markers,
+                consent_basis=form.get("consent_basis", ""),
+                consent_confirmed=form.get("consent_confirmed") == "1",
+                kit_id=form.get("kit_id"),
+                panel_code=form.get("panel", "AUTO"),
+                source_format=source_format,
+                nickname=form.get("nickname"), nickname_visibility=form.get("nickname_visibility", "hidden"),
+                ancestor_text=form.get("ancestor_text"), ancestor_visibility=form.get("ancestor_visibility", "hidden"),
+            )
+        except (ValueError, mk.MarkerError, panels.UnsupportedPanel) as e:
+            return self._new_profile_form(sess, form, str(e))    # введённое не теряется
         self._redirect(f"/profiles/{pid}")
 
     def _profile_page(self, sess, pid):
