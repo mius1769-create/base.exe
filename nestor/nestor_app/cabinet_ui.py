@@ -104,11 +104,6 @@ def _off_button(text: str, primary: bool = False) -> str:
     return f'<button type="button" class="{"primary" if primary else ""}" disabled title="В разработке">{esc(text)}</button>'
 
 
-def _off_switch_row(title: str, desc: str) -> str:
-    return (f'<div class="settings-row"><div><p>{esc(title)}</p><small>{esc(desc)}</small></div>'
-            f'<button type="button" class="switch" role="switch" aria-checked="false" aria-label="{esc(title)}" disabled></button></div>')
-
-
 def _project_bar() -> str:
     return ('<div class="contextbar"><label for="active-project">Текущий проект</label><select id="active-project" disabled>'
             '<option>Проектов пока нет</option></select></div>')
@@ -145,17 +140,34 @@ def _bulk_import() -> str:
             '<div class="panel-body"><div class="empty">Выберите тип теста и загрузите файл.</div></div></section>')
 
 
-def _client_settings() -> str:
-    privacy = (_off_switch_row("Показывать карточку и ник", "Имя образца и данные генеалогического профиля.")
-               + _off_switch_row("Разрешить личные сообщения", "Участники смогут написать владельцу аккаунта.")
-               + _off_switch_row("Показывать населённый пункт предка", "Страна и регион могут оставаться видимыми отдельно."))
-    compare = ('<div class="settings-row"><div><p>Максимальная дистанция</p><small>Шаги различий на сопоставленных STR</small></div>'
-               '<select aria-label="Порог GD в настройках" disabled><option>4</option></select></div>'
-               + _off_switch_row("Учитывать мультикопийные локусы", "Все сопоставимые локусы включены по умолчанию.")
-               + '<p class="caption">Видимость полей уже настраивается на странице каждого профиля в разделе «Мои результаты».</p>')
-    return (head("Личный кабинет / настройки", "Профиль и сравнение", "Настройки приватности применяются к выбранному образцу.",
-                 _off_button("Сохранить настройки", True)) + STUB_NOTE + _kit_bar_empty()
-            + f'<div class="grid2">{panel("Приватность", privacy)}{panel("Параметры сравнения", compare)}</div>')
+def _switch_row(name: str, title: str, desc: str, on: bool) -> str:
+    """Настоящий флажок в виде переключателя макета: работает и без скриптов."""
+    return (f'<div class="settings-row"><div><p>{esc(title)}</p><small>{esc(desc)}</small></div><label class="switch-box">'
+            f'<input type="checkbox" name="{name}" value="1"{" checked" if on else ""} aria-label="{esc(title)}">'
+            '<span class="switch" aria-hidden="true"></span></label></div>')
+
+
+def _select_row(title: str, desc: str, control: str) -> str:
+    return f'<div class="settings-row"><div><p>{esc(title)}</p><small>{esc(desc)}</small></div>{control}</div>'
+
+
+def settings_page(profiles, selected, csrf: str, saved: bool, nickname_vis: str, ancestor_vis: str, gd_select: str) -> str:
+    top = head("Личный кабинет / настройки", "Профиль и сравнение", "Настройки приватности применяются к выбранному образцу.",
+               '<button class="primary" form="settings-form">Сохранить настройки</button>' if profiles else "")
+    if not profiles:
+        return top + panel("Настройки", '<div class="empty">Результатов пока нет. <a href="/import">Добавьте первый результат.</a></div>')
+    notice = '<div class="info" id="settings-saved" role="status">Настройки сохранены.</div>' if saved else ""
+    privacy = (_switch_row("searchable", "Участвовать в поиске", "Профиль виден другим участникам, и вы видите совпадения по нему.", selected.searchable)
+               + _select_row("Показывать карточку и ник", "Никнейм образца в результатах поиска.", nickname_vis)
+               + _switch_row("contact_allowed", "Разрешить личные сообщения", "Участники смогут отправить запрос на связь. Контакты не раскрываются.", selected.contact_allowed)
+               + _select_row("Показывать дальнего предка", "Запись о предке в результатах поиска.", ancestor_vis)
+               + f'<p class="caption">Сам никнейм и запись о предке меняются <a href="/profiles/{selected.id}">на странице профиля</a>.</p>')
+    compare = (_select_row("Максимальная дистанция", "Шаги различий на сопоставленных STR", gd_select)
+               + _switch_row("compare_multicopy", "Учитывать мультикопийные локусы", "Если выключить, DYS385, DYS464, YCAII и другие такие локусы не войдут в GD.", selected.compare_multicopy)
+               + '<p class="caption">Применяется к разделу «Совпадения». Там же порог и список локусов можно изменить для одного поиска.</p>')
+    return (top + notice + _kit_select(profiles, selected)
+            + f'<form id="settings-form" method="post" action="/cabinet/settings"><input type="hidden" name="csrf" value="{esc(csrf)}">'
+            + f'<input type="hidden" name="kit" value="{selected.id}"><div class="grid2">{panel("Приватность", privacy)}{panel("Параметры сравнения", compare)}</div></form>')
 
 
 def _project_cards(label: str, title: str, sub: str, action: str = "", bar: str = "") -> str:
@@ -219,7 +231,6 @@ STUB_SCREENS = {
     "/cabinet/projects": lambda: _project_cards("Личный кабинет / проекты", "Совместные исследования",
                                                 "Вступайте в проекты от имени выбранного образца.", bar=_kit_bar_empty()),
     "/cabinet/messages": lambda: _messages("Личный кабинет", "Переписка по выбранному образцу."),
-    "/cabinet/settings": _client_settings,
     "/admin": _admin_overview,
     "/admin/members": _admin_members,
     "/admin/groups": _admin_groups,

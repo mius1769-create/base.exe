@@ -16,7 +16,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -59,7 +59,10 @@ CREATE TABLE IF NOT EXISTS profiles (
     ancestor_text          TEXT,
     ancestor_visibility    TEXT NOT NULL DEFAULT 'hidden'
                            CHECK (ancestor_visibility IN ('hidden','registered','public')),
-    created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    contact_allowed        INTEGER NOT NULL DEFAULT 1 CHECK (contact_allowed IN (0,1)),
+    compare_max_gd         INTEGER NOT NULL DEFAULT 4,     -- порог GD по умолчанию при поиске владельца
+    compare_multicopy      INTEGER NOT NULL DEFAULT 1 CHECK (compare_multicopy IN (0,1)),
+    created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 CREATE INDEX IF NOT EXISTS ix_profiles_owner ON profiles(owner_user_id);
@@ -158,6 +161,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
     if pcols and "panel_code" not in pcols:  # миграция v2 → v3: панель профиля
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_code TEXT")
         conn.execute("ALTER TABLE profiles ADD COLUMN panel_basis TEXT NOT NULL DEFAULT 'custom'")
+    if pcols and "contact_allowed" not in pcols:  # миграция v7 → v8: настройки профиля; поведение прежнее
+        conn.execute("ALTER TABLE profiles ADD COLUMN contact_allowed INTEGER NOT NULL DEFAULT 1 CHECK (contact_allowed IN (0,1))")
+        conn.execute("ALTER TABLE profiles ADD COLUMN compare_max_gd INTEGER NOT NULL DEFAULT 4")
+        conn.execute("ALTER TABLE profiles ADD COLUMN compare_multicopy INTEGER NOT NULL DEFAULT 1 CHECK (compare_multicopy IN (0,1))")
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     if "is_master" not in ucols:  # миграция v6 → v7: роль мастера базы (по умолчанию ни у кого)
         conn.execute("ALTER TABLE users ADD COLUMN is_master INTEGER NOT NULL DEFAULT 0 CHECK (is_master IN (0,1))")

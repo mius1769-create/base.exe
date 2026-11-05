@@ -25,13 +25,15 @@ def send_request(conn: sqlite3.Connection, from_user_id: int, to_handle: str, me
     if len(message) > MAX_MESSAGE:
         raise ContactError(f"сообщение длиннее {MAX_MESSAGE} символов")
     row = conn.execute(
-        "SELECT id, owner_user_id FROM profiles WHERE public_handle = ? AND searchable = 1",
+        "SELECT id, owner_user_id, contact_allowed FROM profiles WHERE public_handle = ? AND searchable = 1",
         (to_handle,),
     ).fetchone()
     if row is None:
         raise ContactError("профиль не найден или закрыт")
     if row["owner_user_id"] == from_user_id:
         raise ContactError("нельзя отправить запрос своему профилю")
+    if not row["contact_allowed"]:
+        raise ContactError("владелец этого профиля не принимает запросы на связь")
     try:
         cur = conn.execute(
             "INSERT INTO contact_requests(from_user_id, to_profile_id, message) VALUES (?,?,?)",

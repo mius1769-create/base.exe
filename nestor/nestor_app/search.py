@@ -57,6 +57,7 @@ class PublicMatch:
     copy_count_differences: int = 0   # разное число копий (вне GD)
     allele_differences: int = 0       # дробные различия без перевода в шаги (вне GD)
     user_excluded: int = 0            # исключены пользователем (вне GD)
+    contact_allowed: bool = True      # владелец принимает запросы на связь
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,13 @@ def _public(row, res, viewer) -> PublicMatch:
         copy_count_differences=len(res.copy_count_differences),
         allele_differences=len(res.allele_differences),
         user_excluded=len(res.user_excluded),
+        contact_allowed=bool(row["contact_allowed"]),
     )
+
+
+def owner_defaults(profile) -> tuple[int, list[str]]:
+    """Порог GD и исключённые локусы из настроек профиля."""
+    return profile.compare_max_gd, ([] if profile.compare_multicopy else list(panels.MULTICOPY_LOCI))
 
 
 def _candidates(conn, query, max_gd, min_common, viewer, exclude_owner=None, excluded_loci=()):

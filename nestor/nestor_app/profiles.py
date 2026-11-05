@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from . import markers as mk
 from . import panels as pn
+from .config import MAX_ALLOWED_GD
 from .db import CheckpointResult, Tx, checkpoint_truncate
 
 CONSENT_TEXT_VERSION = "2026-11-mvp1"
@@ -42,6 +43,9 @@ class OwnerProfileView:
     markers: dict  # {локус: кортеж | None (нет значения) | Invalid (не распознано)}
     panel_code: str | None = None   # None — пользовательский набор
     panel_basis: str = "custom"     # selected | recognized | custom
+    contact_allowed: bool = True
+    compare_max_gd: int = 4
+    compare_multicopy: bool = True
 
 
 def _clean_text(value: str | None, field: str) -> str | None:
@@ -166,6 +170,8 @@ def get_owned(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> 
         ancestor_visibility=r["ancestor_visibility"], created_at=r["created_at"],
         markers=load_markers(conn, r["id"]),
         panel_code=r["panel_code"], panel_basis=r["panel_basis"],
+        contact_allowed=bool(r["contact_allowed"]), compare_max_gd=r["compare_max_gd"],
+        compare_multicopy=bool(r["compare_multicopy"]),
     )
 
 
@@ -213,6 +219,41 @@ def update_public_fields(
             "INSERT INTO consent_events(profile_id, event, detail) VALUES (?, 'visibility_changed', ?)",
             (profile_id, f"nickname={nickname_visibility}; ancestor={ancestor_visibility}"),
         )
+
+
+def update_settings(
+    conn: sqlite3.Connection,
+    owner_user_id: int,
+    profile_id: int,
+    *,
+    searchable: bool,
+    nickname_visibility: str,
+    ancestor_visibility: str,
+    contact_allowed: bool,
+    compare_max_gd: int,
+    compare_multicopy: bool,
+) -> None:
+    """Настройки одного профиля одной транзакцией. В журнал согласий идут только реальные изменения."""
+    row = _owned_row(conn, owner_user_id, profile_id)
+    _check_visibility(nickname_visibility)
+    _check_visibility(ancestor_visibility)
+    if not 0 <= compare_max_gd <= MAX_ALLOWED_GD:
+        raise ProfileError(f"порог GD должен быть от 0 до {MAX_ALLOWED_GD}")
+    events = []
+    if bool(row["searchable"]) != searchable:
+        events.append(("search_enabled" if searchable else "search_disabled", None))
+    if (row["nickname_visibility"], row["ancestor_visibility"]) != (nickname_visibility, ancestor_visibility):
+        events.append(("visibility_changed", f"nickname={nickname_visibility}; ancestor={ancestor_visibility}"))
+    if bool(row["contact_allowed"]) != contact_allowed:
+        events.append(("contact_enabled" if contact_allowed else "contact_disabled", None))
+    with Tx(conn):
+        conn.execute(
+            """UPDATE profiles SET searchable = ?, nickname_visibility = ?, ancestor_visibility = ?, contact_allowed = ?,
+                   compare_max_gd = ?, compare_multicopy = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?""",
+            (int(searchable), nickname_visibility, ancestor_visibility, int(contact_allowed), compare_max_gd, int(compare_multicopy), profile_id),
+        )
+        for event, detail in events:
+            conn.execute("INSERT INTO consent_events(profile_id, event, detail) VALUES (?, ?, ?)", (profile_id, event, detail))
 
 
 def delete_profile(conn: sqlite3.Connection, owner_user_id: int, profile_id: int) -> CheckpointResult:

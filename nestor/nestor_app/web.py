@@ -367,6 +367,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._cabinet_overview(sess)
         if path == "/cabinet/matches":
             return self._cabinet_matches(sess)
+        if path == "/cabinet/settings":
+            return self._cabinet_settings(sess)
         if path in cabinet_ui.STUB_SCREENS:
             return self._stub_screen(sess, path)
         if path == "/profiles/new":
@@ -422,6 +424,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._redirect("/", [("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")])
         if path == "/master/backup":
             return self._master_backup(sess, form)
+        if path == "/cabinet/settings":
+            return self._save_settings(uid, form)
         if path == "/profiles/new":
             return self._create_profile(uid, form)
         if path == "/import":
@@ -508,17 +512,46 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._page(cabinet_ui.SCREEN_TITLES.get(path, "NeSToR"), cabinet_ui.STUB_SCREENS[path](), sess)
 
+    def _selected_kit(self, uid):
+        """Профили владельца и выбранный из адреса; чужой номер просто не будет найден среди своих."""
+        profiles = pr.list_owned(self.nestor.conn, uid)
+        wanted = parse_qs(urlsplit(self.path).query).get("kit", [""])[0]
+        return profiles, next((p for p in profiles if str(p.id) == wanted), profiles[0] if profiles else None)
+
+    def _cabinet_settings(self, sess):
+        if not sess:
+            return self._redirect("/login")
+        profiles, selected = self._selected_kit(sess[0])
+        saved = parse_qs(urlsplit(self.path).query).get("saved", [""])[0] == "1"
+        if not selected:
+            return self._page("Настройки", cabinet_ui.settings_page([], None, sess[1], False, "", "", ""), sess)
+        gd = compare_ui._select("compare_max_gd", [(g, g) for g in compare_ui.GD_CHOICES], selected.compare_max_gd)
+        self._page("Настройки", cabinet_ui.settings_page(
+            profiles, selected, sess[1], saved, self._vis_select("nickname_visibility", selected.nickname_visibility),
+            self._vis_select("ancestor_visibility", selected.ancestor_visibility), gd), sess)
+
+    def _save_settings(self, uid, form):
+        try:
+            pid, max_gd = int(form.get("kit", "")), int(form.get("compare_max_gd", ""))
+        except ValueError:
+            raise ValueError("неверный образец или порог GD") from None
+        pr.update_settings(self.nestor.conn, uid, pid, searchable=form.get("searchable") == "1",
+                           nickname_visibility=form.get("nickname_visibility", "hidden"),
+                           ancestor_visibility=form.get("ancestor_visibility", "hidden"),
+                           contact_allowed=form.get("contact_allowed") == "1", compare_max_gd=max_gd,
+                           compare_multicopy=form.get("compare_multicopy") == "1")
+        self._redirect(f"/cabinet/settings?kit={pid}&saved=1")
+
     def _cabinet_overview(self, sess):
         if not sess:
             return self._redirect("/login")
         uid = sess[0]
-        profiles = pr.list_owned(self.nestor.conn, uid)
-        wanted = parse_qs(urlsplit(self.path).query).get("kit", [""])[0]
-        selected = next((p for p in profiles if str(p.id) == wanted), profiles[0] if profiles else None)
+        profiles, selected = self._selected_kit(uid)
         found, events = None, []
         if selected:
             if selected.searchable:
-                found = search.owner_search(self.nestor.conn, uid, selected.id)
+                max_gd, excluded = search.owner_defaults(selected)
+                found = search.owner_search(self.nestor.conn, uid, selected.id, max_gd=max_gd, excluded_loci=excluded)
             events = [(master_ui.EVENT_LABELS.get(r["event"], r["event"]), master_ui._db_time(r["at"])) for r in self.nestor.conn.execute(
                 "SELECT event, at FROM consent_events WHERE profile_id = ? ORDER BY id DESC LIMIT 3", (selected.id,))]
         pending = sum(1 for r in contacts.incoming(self.nestor.conn, uid) if r["status"] == "pending")
@@ -599,7 +632,9 @@ Strelka и Y700 как отдельные форматы файлов не по�
         rows = []
         for m in matches:
             contact = ""
-            if contact_csrf:
+            if contact_csrf and not m.contact_allowed:
+                contact = '<span class="muted">Не принимает запросы</span>'
+            elif contact_csrf:
                 contact = (f'<form method="post" action="/contact"><input type="hidden" name="csrf" value="{esc(contact_csrf)}">'
                            f'<input type="hidden" name="handle" value="{esc(m.handle)}">'
                            f'<input type="text" name="message" placeholder="сообщение владельцу" required>'
@@ -873,9 +908,10 @@ Strelka и Y700 как отдельные форматы файлов не по�
             return self._redirect("/login")
         q = parse_qs(urlsplit(self.path).query)
         try:
-            max_gd = int(q.get("max_gd", [DEFAULT_MAX_GD])[0])
+            default_gd, default_excluded = search.owner_defaults(pr.get_owned(self.nestor.conn, sess[0], pid))
+            max_gd = int(q.get("max_gd", [default_gd])[0])
             min_common = int(q.get("min_common", [DEFAULT_MIN_COMMON])[0])
-            excluded = q.get("excluded", [""])[0]
+            excluded = q.get("excluded", [", ".join(default_excluded)])[0]
             matches = search.owner_search(self.nestor.conn, sess[0], pid, max_gd=max_gd, min_common=min_common,
                                           excluded_loci=self._excluded_list(excluded))
         except (ValueError, search.SearchError) as e:

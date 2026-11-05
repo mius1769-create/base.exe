@@ -27,7 +27,10 @@ PATCH_CSS = """
 .gd.g-mid{background:#faf2df;color:#9d792e} .gd.g-far{background:#f5eaea;color:#a76464} .gd.g-near{background:#e9f4ec;color:#3c7e5a}
 .pill.warn-pill{background:#fbf2e3;color:var(--amber);font-family:inherit;font-weight:500;letter-spacing:0}
 table .sub{font-size:10px;color:#8b969e;margin-top:4px;line-height:1.5} .panel .sub{margin-top:6px}
-.switch:disabled{cursor:default} .stat{font-size:12px;font-weight:550} a.stat{color:inherit} a.stat:hover{text-decoration:none}
+.switch-box{position:relative;display:inline-block;flex-shrink:0} .switch-box input{position:absolute;inset:0;width:33px;height:19px;margin:0;opacity:0;cursor:pointer;z-index:1}
+.switch-box .switch{display:block} .switch-box input:checked+.switch{background:var(--blue)} .switch-box input:checked+.switch:before{transform:translateX(14px)}
+.switch-box input:focus-visible+.switch{outline:3px solid #8ab9d0;outline-offset:3px} .settings-row select{max-width:210px}
+.switch:disabled{cursor:default}.stat{font-size:12px;font-weight:550} a.stat{color:inherit} a.stat:hover{text-decoration:none}
 .demo-strip{min-height:41px} .footer{min-height:76px}
 .btn-link{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:7px 12px;font-size:12px;font-weight:550;white-space:nowrap}
 a.btn-link:hover{text-decoration:none;background:#256887} .contextbar select{flex:0 1 auto;min-width:0}

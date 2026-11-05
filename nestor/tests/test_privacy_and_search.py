@@ -118,7 +118,7 @@ class TestNoPrivateDataInResults(unittest.TestCase):
         self.assertNotIn("SECRETKIT1", blob)
         self.assertEqual(set(dataclasses.asdict(owner_res[0])), {"handle", "gd", "compared", "panel_overlap", "missing_or_invalid",
                           "copy_count_differences", "allele_differences", "user_excluded",
-                          "nickname", "ancestor", "preliminary"})
+                          "nickname", "ancestor", "preliminary", "contact_allowed"})
         self.assertNotIn("kit_id_private", export)
 
     def test_field_visibility_guest_vs_registered(self):

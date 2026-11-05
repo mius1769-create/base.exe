@@ -19,7 +19,8 @@ from .test_catalog import H4_SCALE_THRESHOLD
 SOURCES_SHOWN = 8
 EVENTS_SHOWN = 8
 EVENT_LABELS = {"upload": "Загружен профиль, согласие подтверждено", "search_enabled": "Владелец включил поиск по профилю",
-                "search_disabled": "Владелец выключил поиск по профилю", "visibility_changed": "Владелец изменил видимость полей"}
+                "search_disabled": "Владелец выключил поиск по профилю", "visibility_changed": "Владелец изменил видимость полей",
+                "contact_enabled": "Владелец разрешил запросы на связь", "contact_disabled": "Владелец запретил запросы на связь"}
 STATUS_CLASSES = (("допущен", "green"), ("ждём", "amber"), ("исключён", "red"))
 KIND_LABELS = {"individual": "индивидуальные", "aggregated": "агрегированные"}
 

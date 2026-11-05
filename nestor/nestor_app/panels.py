@@ -31,6 +31,8 @@ DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "panels_archive.js
 _COPIES = {"DYS385": 2, "DYS459": 2, "DYS464": 4, "YCAII": 2, "CDY": 2, "DYF395S1": 2,
            "DYS413": 2, "DYF387S1": 2, "DYS527": 2, "DYF404S1": 1}
 
+MULTICOPY_LOCI = tuple(sorted(k for k, n in _COPIES.items() if n > 1))
+
 CUSTOM = "CUSTOM"  # пользовательский набор без известной панели
 RECOGNITION_MIN_COVERAGE = 0.9
 
